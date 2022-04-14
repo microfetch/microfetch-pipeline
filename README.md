@@ -3,14 +3,21 @@
 ## Resources
 
 - `./microfetch.csv`
-    - `taxonomy_number`
-      - taxonomy number for an organism
+    - `taxonomy_id`
+      - taxon id for an organism
     - `last_checked`
       - timestamp of the last time the pipeline was run for this organism
     - `droplet_ips`
-      - space-separated IP addresses for the droplets processing this taxonomy number's accession ids
+      - space-separated IP addresses for the droplets processing this taxon id's accession ids
     - `last_run_status`
-      - status for the last run of the pipeline on this taxonomy number
+      - status for the last run of the pipeline on this taxon id
+      - Values:
+        - '': new entries
+        - 'in progress': entries where the pipeline is running
+        - 'ready': entries where the data are hosted on a DigitalOcean droplet awaiting download
+        - 'complete': entries where data have been downloaded
+        - 'warning': the pipeline generated warnings
+        - 'error': the pipeline generated errors
     - `needs_attention`
       - reason for requiring human attention
       - if not blank, nothing will be done, human inspection and repair required
@@ -39,17 +46,18 @@
 Possibilities:
   - NodeJS
   - nextflow pipeline
+    - with Python sripts
   - bash
 
 ### Procedure
 
 - Schedule two tasks:
-  - Taxonomy number -> genome data pipeline
+  - Taxon id -> genome data pipeline
     - Eventually would be nice if this also ran the assembly pipeline
   - BDI server `rsync`
-- Expose a script for adding taxonomy numbers
+- Expose a script for adding taxon ids
 
-### Taxonomy number -> genome data pipeline
+### Taxon id -> genome data pipeline
 
 - Find entry in `./microfetch.csv` with no `last_checked` value or with oldest `last_checked` value
 - Take that entry's `taxonomy_number` and `last_checked` values and give them to `fetch_accession_links.py`
@@ -72,9 +80,9 @@ Possibilities:
   - do not delete IP or destroy droplets
   - mark `taxonomy_number` as in need of attention
 
-### Add taxonomy numbers script
+### Add taxon ids script
 
-- Accept any number of taxonomy numbers as arguments
-- Add novel taxonomy numbers as entries in `./microfetch.csv`
+- Accept any number of taxon ids as arguments
+- Add novel taxon ids as entries in `./microfetch.csv`
 - Summarise actions taken for the user
 

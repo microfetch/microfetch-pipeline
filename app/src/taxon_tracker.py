@@ -4,12 +4,15 @@ import logging
 import os
 import sys
 from typing import Union
+from time import sleep
+
+from backend import fetch_accession_csv, filter_accession_csv, create_droplet_farm, path, stage_names
+from backend import Priority as Priority
+from backend import Stage as Stage
+from backend import RunStatus as RunStatus
 
 import click
 import pandas
-
-headers = ['index', 'taxon_id', 'last_checked', 'droplet_ips', 'last_run_status', 'needs_attention']
-csv_location = "microfetch.csv"
 
 
 def load_csv(csv_file: str) -> Union[pandas.DataFrame, bool]:
@@ -23,19 +26,36 @@ def load_csv(csv_file: str) -> Union[pandas.DataFrame, bool]:
         # Check file integrity
         head = next(csv.reader(f))
         logging.debug(f"Headers: {', '.join(head)}")
-        date_field = head.index(headers[1])  # note the date field for pandas parsing
+        # note the date field for pandas parsing
+        date_fields = [head.index(x) for x in ['last_checked', 'checkpoint_time']]
         if not all([h in head for h in headers]):
             missing_headers = [h for h in headers if h in head]
             raise KeyError(f"{csv_file} missing headers: {', '.join(missing_headers)}")
 
     logging.debug(f"Headers okay. Loading content.")
     try:
-        data = pandas.read_csv(csv_file, index_col='index', parse_dates=[date_field], dtype="string").fillna('')
+        data = pandas.read_csv(csv_file, index_col='index', parse_dates=date_fields, dtype=dtypes).fillna('')
     except pandas.errors.EmptyDataError:
-        data = pandas.DataFrame(columns=head, dtype="string").set_index('index').fillna('')
+        data = pandas.DataFrame(columns=head, dtype=dtypes).set_index('index').fillna('')
         logging.debug(f"File is empty.")
 
     return data
+
+
+dtypes = {
+    'index': "int",
+    'taxon_id': "string",
+    'last_checked': "string",
+    'last_run_status': "string",
+    'needs_attention': "string",
+    'stage': "int",
+    'stage_name': "string",
+    'priority': "int",
+    'generated_warning': "string",
+    'checkpoint_time': "string"
+}
+headers = dtypes.keys()
+csv_location = path("data/microfetch.csv")
 
 
 @click.group()
@@ -53,12 +73,14 @@ def load_csv(csv_file: str) -> Union[pandas.DataFrame, bool]:
 )
 @click.pass_context
 def taxon_tracker(ctx: click.Context, csv_file: str, verbose: bool) -> None:
-    logging.basicConfig(stream=sys.stdout, level=logging.DEBUG if verbose else logging.INFO)
+    # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG if verbose else logging.INFO)
+
     # ensure that ctx.obj exists and is a dict (in case script is called
     # by means other than the main `if` block below)
     ctx.ensure_object(dict)
 
     ctx.obj['CSV_FILE_PATH'] = csv_file
+    ctx.obj['VERBOSE'] = verbose
 
 
 @taxon_tracker.command()
@@ -117,9 +139,13 @@ def add(ctx: click.Context, taxon_id: str) -> None:
             'index': [0],
             'taxon_id': [taxon_id],
             'last_checked': [''],
-            'droplet_ips': [''],
-            'last_run_status': [''],
-            'needs_attention': ['']
+            'last_run_status': ['new'],
+            'needs_attention': [''],
+            'stage': [Stage.FETCH_ACCESSION_CSV.value],
+            'stage_name': [stage_names[Stage.FETCH_ACCESSION_CSV]],
+            'priority': [Stage.FETCH_ACCESSION_CSV.value],
+            'generated_warning': [''],
+            'checkpoint_time': [datetime.datetime.utcnow().isoformat()]
         }, dtype="string")
         new_entry = new_entry.set_index('index')
         data = pandas.concat([data, new_entry])
@@ -141,78 +167,114 @@ def status(ctx: click.Context, verbosity: int) -> None:
     """
     Show the status of currently tracked taxon_ids.
     """
-    def summary(nice_name: str, key: str) -> str:
-        return f"{nice_name}: {data[(data.last_run_status == key)].shape[0]}"
+    def summary(key: str) -> str:
+        print(f"{key}: {data[(data.last_run_status == key)].shape[0]}")
 
     def detail(key: str) -> str:
-        return '\n\t'.join(data[(data.last_run_status == '')].taxon_id)
+        ids = data[(data.last_run_status == key)].taxon_id
+        if len(ids):
+            print(f"\t{', '.join(ids)}")
 
     data = load_csv(csv_file=ctx.obj['CSV_FILE_PATH'])
 
     # Summarise the current status of trackers
     print(f"Taxon tracking status:")
-    print(summary('New', ''))
-    if verbosity > 1:
-        print(detail(''))
-    print(summary('In progress', 'in progress'))
-    if verbosity > 1:
-        print(detail('in progress'))
-    print(summary('Awaiting download', 'ready'))
-    if verbosity > 0:
-        print(detail('ready'))
-    print(summary('Completed', 'complete'))
-    if verbosity > 1:
-        print(detail('complete'))
-    print(summary('Completed with warning', 'warning'))
-    if verbosity > 0:
-        print(detail('warning'))
-    print(summary('Errored', 'error'))
-    if verbosity > 0:
-        print(detail('error'))
+    for s in RunStatus:
+        logging.debug(s)
+        summary(s.value)
+        if s == RunStatus.IN_PROGRESS:
+            if verbosity == 1:
+                for stage in Stage:
+                    print(f"{stage_names[stage]}: {data[(data.stage == stage)].shape[0]}")
+        if verbosity > 1 or (verbosity > 0 and s > RunStatus.COMPLETE_WITH_WARNING):
+            detail(s.value)
+
     print(f"Additionally, {data[(data.needs_attention == 'True')].shape[0]} records require attention.")
     if verbosity > 0:
-        print("\n\t".join(data[(data.needs_attention == 'True')].taxon_id))
+        ids = data[(data.needs_attention == 'True')].taxon_id
+        if len(ids):
+            print(f"\t{', '.join(ids)}")
+
+
+def do_next_action(ctx: click.Context) -> float:
+    """
+    Run the next job in the queue and return the amount of time to sleep after completing.
+    """
+    # Find the next job
+    data = load_csv(csv_file=ctx.obj['CSV_FILE_PATH'])
+
+    candidates = data.loc[(data.priority > 0)]
+    if candidates.shape[0] == 0:
+        raise RuntimeWarning(f"There are no taxon ids that require processing.")
+
+    candidates = candidates.sort_values(by=['priority'], ascending=False, na_position='last')
+    row = candidates.iloc[0]
+
+    # Execute the job
+    logging.basicConfig(
+        filename=path(f'log/{row.taxon_id}.log'),
+        level=logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO
+    )
+    try:
+        if row.stage == Stage.FETCH_ACCESSION_CSV or row.stage == Stage.UPDATE_ACCESSION_CSV:
+            logging.info(f"Processing taxon id {row.taxon_id}: Fetch accession CSV")
+            data.loc[data.taxon_id == row.taxon_id] = fetch_accession_csv(ctx=ctx, row=row)
+        elif row.stage == Stage.FILTER_ACCESSION_CSV:
+            logging.info(f"Processing taxon id {row.taxon_id}: Filter accession numbers")
+            data.loc[data.taxon_id == row.taxon_id] = filter_accession_csv(ctx=ctx, row=row)
+        elif row.stage == Stage.CREATE_DROPLET_FARM:
+            logging.info(f"Processing taxon id {row.taxon_id}: Create droplet farm")
+            data.loc[data.taxon_id == row.taxon_id] = create_droplet_farm(ctx=ctx, row=row)
+        else:
+            raise RuntimeError(f"Unrecognised stage '{row.stage}' for taxon id {row.taxon_id}")
+    except Warning:
+        data.loc[data.taxon_id == row.taxon_id, ['generated_warning']] = ['True']
+    except Exception:
+        data.loc[data.taxon_id == row.taxon_id, ['last_run_status', 'priority']] = [
+            'error',
+            Priority.STOPPED.value
+        ]
+
+    data.to_csv(ctx.obj['CSV_FILE_PATH'])
+    return 0.0
 
 
 @taxon_tracker.command()
+@click.option(
+    '--once', 'stop',
+    is_flag=True,
+    help='Perform only one heartbeat step.'
+)
 @click.pass_context
-def process_next(ctx: click.Context) -> Union[tuple[str, str], bool]:
+def heartbeat(ctx: click.Context, sleep_time: float = 1.0, max_sleep: float = 3600.0, stop: bool = True) -> None:
     """
-    Run the pipeline for the least recently updated taxon_id in the tracker CSV file.
+    Daemon-like serial processing of jobs.
     """
-    output = {
-        'taxon_id': None,
-        'last_update': None
-    }
+    def main_logging():
+        logging.basicConfig(
+            filename=path('log/main.log'),
+            level=logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO
+        )
 
-    data = load_csv(csv_file=ctx.obj['CSV_FILE_PATH'])
+    try:
+        main_logging()
+        if stop:
+            logging.debug(f"heartbeat called with --once: performing next action and stopping.")
+            logging.debug(ctx)
+        sleep_time = do_next_action(ctx=ctx)
+    except Warning as w:
+        main_logging()
+        sleep_time = sleep_time * 2
+        if sleep_time > max_sleep:
+            sleep_time = max_sleep
+        logging.warning(w)
+    except Exception as e:
+        main_logging()
+        logging.error(e)
 
-    # don't redo in-progress taxons
-    candidates = data.loc[((pandas.isna(data['last_run_status']) is False) | (data['last_run_status'] != 'in progress'))]
-
-    if candidates.shape[0] == 0:
-        logging.info(f"There are no taxon ids that require processing. Stopping.")
-        return False
-
-    candidates = candidates.sort_values(by=[headers[1]], ascending=True, na_position='first')
-    row = candidates.iloc[0]
-
-    logging.info(f"Selected {row.taxon_id} for processing.")
-
-    output['last_update'] = row.last_checked
-    output['taxon_id'] = row.taxon_id
-    if row.last_checked:
-        logging.info(f"{row.taxon_id} last updated {row.last_checked}.")
-    else:
-        logging.info(f"{row.taxon_id} has never been fetched.")
-
-    # Update values in original dataframe
-    data.loc[data.taxon_id == row.taxon_id, headers[1:]] = [
-        '570', datetime.datetime.utcnow().isoformat(), '', 'in progress', ''
-    ]
-    data.to_csv(ctx.obj['CSV_FILE_PATH'])
-
-    return output['taxon_id'], output['last_update']
+    if not stop:
+        sleep(sleep_time)
+        heartbeat(sleep_time=sleep_time, max_sleep=max_sleep, stop=stop)
 
 
 if __name__ == '__main__':

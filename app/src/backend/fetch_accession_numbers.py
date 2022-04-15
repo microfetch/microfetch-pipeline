@@ -7,7 +7,7 @@ import click as click
 import requests
 from retry import retry
 
-import fetch_taxon_links as taxon_link
+from . import fetch_taxon_links as taxon_link
 
 search_url = 'https://www.ebi.ac.uk/ena/portal/api/search'
 id_fields = ['run_accession', 'experiment_accession', 'sample_accession', 'secondary_sample_accession']
@@ -168,8 +168,7 @@ def fetch_data_slice(
     return result
 
 
-def fetch(accessions, accession_type, result_type, fields, current_offset=0, search_limit=default_limit) -> List[
-    Dict[str, str]]:
+def fetch(accessions, accession_type, result_type, fields, current_offset=0, search_limit=default_limit) -> List[Dict[str, str]]:
     results = list()
     while current_offset < (len(accessions) - 1):
         print(f'Progress {current_offset} out of {len(accessions)}', file=sys.stderr)
@@ -203,14 +202,17 @@ def determine_taxon_result_type(accession_type: str) -> str:
 @click.option('-o', '--offset', required=False, default=0, help='Continue a partial download.')
 @click.option('-l', '--limit', required=False, default=default_limit, help='Change limit to number of requests')
 @click.option('-q', '--query', required=False, default='identifiers', help=f'all/identifiers')
-def fetch_records(taxon_id: str, accession_type: str, result_type: str, offset: int, limit: int, query: str):
+def fetch_records(taxon_id: str, accession_type: str, result_type: str, offset: int, limit: int, query: str,
+                  print_result: bool = True) -> list:
     fields = canned_queries[f'{result_type}_{query}']
     taxon_links = taxon_link.fetch(taxon_id, determine_taxon_result_type(accession_type))
     accession_field_name = accession_field_name_map[accession_type]
     accessions = [row[accession_field_name] for row in taxon_links]
     result_list = fetch(accessions, accession_type, result_type, fields=fields, current_offset=offset,
                         search_limit=limit)
-    print_csv(result_list, fields)
+    if print_result:
+        print_csv(result_list, fields)
+    return result_list
 
 
 def print_csv(result_list: List[Dict[str, str]], columns: List[str]):

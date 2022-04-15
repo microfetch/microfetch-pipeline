@@ -21,18 +21,31 @@
     - `needs_attention`
       - reason for requiring human attention
       - if not blank, nothing will be done, human inspection and repair required
-- `./log/<taxonomy_number>.log`
-  - Log for the pipeline of `taxonomy_number`
+    - `stage`
+      - next job that will be run
+    - `stage_name`
+      - human-readable name of the stage
+    - `priority`
+      - priority in the event loop -- higher is higher priority
+    - `generated_waring`
+      - boolean whether the pipeline generated a warning
+- `./log/<taxon_id>.log`
+  - Log for the pipeline of `taxon_id`
 - `fetch_accession_links.py`
-  - Takes `taxonomy_number` and returns `<taxonomy_number>.csv`
+  - Takes `taxon_id` and returns `<taxon_id>.csv`
   - TODO: modify to also take a `last_checked` value and only return results since then
-- `./data/ENA_metadata/<taxonomy_number>.csv`
-  - metadata for European Nucleotide Archive records matching `taxonomy_number`
+- `./data/ENA_metadata/<taxon_id>.csv`
+  - metadata for European Nucleotide Archive records matching `taxon_id`
 - `parse_fetched_data.py`
-  - Takes `<taxonomy_number>.csv` and returns a list of **run accession numbers**
+  - Takes `<taxon_id>.csv` and returns a list of **run accession numbers**
   for valid and useful entries.
-- `./data/ENA_accession_numbers/<taxonomy_number>.txt`
-  - newline-separated list of ENA **run accession numbers** for `taxonomy_number`
+- `./data/ENA_accession_numbers/<taxon_id>.csv`
+  - comma-separated value file for `taxon_id` accessions with columns:
+    - `run_accession_number`
+    - `excluded`
+      - Whether the record is excluded by `parse_fetched_data.py`
+    - `droplet_ip`
+      - IP address of the droplet handling this record
 - Digital Ocean droplets
   - Take a list of **run accession numbers** and save the associated genome data
   - Uses nextflow

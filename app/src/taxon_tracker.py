@@ -2,7 +2,7 @@ import csv
 import datetime
 import logging
 import os
-import sys
+from pathlib import Path
 from typing import Union
 from time import sleep
 
@@ -10,40 +10,43 @@ from backend import fetch_accession_csv, filter_accession_csv, create_droplet_fa
 from backend import Priority as Priority
 from backend import Stage as Stage
 from backend import RunStatus as RunStatus
+from backend import logger as backend_logger
 
 import click
 import pandas
 
+logger = logging.getLogger(__file__)
+log_format = logging.Formatter(fmt='%(asctime)s %(levelname)s:\t%(message)s')
+
 
 def load_csv(csv_file: str) -> Union[pandas.DataFrame, bool]:
     if not os.path.exists(csv_file):
-        logging.error(f"Cannot find CSV tracker file at {csv_file}")
+        logger.error(f"Cannot find CSV tracker file at {csv_file}")
         raise FileNotFoundError(f"CSV tracker file {csv_file} does not exist.")
 
     with open(csv_file, 'r') as f:
-        logging.info(f"Reading taxon information from {csv_file}")
-        logging.debug(f"Checking header integrity of {csv_file}")
+        logger.info(f"Reading taxon information from {csv_file}")
+        logger.debug(f"Checking header integrity of {csv_file}")
         # Check file integrity
         head = next(csv.reader(f))
-        logging.debug(f"Headers: {', '.join(head)}")
+        logger.debug(f"Headers: {', '.join(head)}")
         # note the date field for pandas parsing
         date_fields = [head.index(x) for x in ['last_checked', 'checkpoint_time']]
         if not all([h in head for h in headers]):
             missing_headers = [h for h in headers if h in head]
             raise KeyError(f"{csv_file} missing headers: {', '.join(missing_headers)}")
 
-    logging.debug(f"Headers okay. Loading content.")
+    logger.debug(f"Headers okay. Loading content.")
     try:
-        data = pandas.read_csv(csv_file, index_col='index', parse_dates=date_fields, dtype=dtypes).fillna('')
+        data = pandas.read_csv(csv_file, parse_dates=date_fields, dtype=dtypes).fillna('')
     except pandas.errors.EmptyDataError:
-        data = pandas.DataFrame(columns=head, dtype=dtypes).set_index('index').fillna('')
-        logging.debug(f"File is empty.")
+        data = pandas.DataFrame(columns=head, dtype=dtypes).fillna('')
+        logger.debug(f"File is empty.")
 
     return data
 
 
 dtypes = {
-    'index': "int",
     'taxon_id': "string",
     'last_checked': "string",
     'last_run_status': "string",
@@ -73,8 +76,6 @@ csv_location = path("data/microfetch.csv")
 )
 @click.pass_context
 def taxon_tracker(ctx: click.Context, csv_file: str, verbose: bool) -> None:
-    # logging.basicConfig(stream=sys.stdout, level=logging.DEBUG if verbose else logging.INFO)
-
     # ensure that ctx.obj exists and is a dict (in case script is called
     # by means other than the main `if` block below)
     ctx.ensure_object(dict)
@@ -92,20 +93,20 @@ def init(ctx: click.Context) -> None:
     csv_file = ctx.obj['CSV_FILE_PATH']
     if not os.path.exists(csv_file):
         with open(csv_file, 'w+') as f:
-            logging.debug(f"Creating {csv_file} with headers: {', '.join(headers)}")
+            logger.debug(f"Creating {csv_file} with headers: {', '.join(headers)}")
             writer = csv.writer(f)
             writer.writerow(headers)
-            logging.info(f"Created {csv_file}.")
+            logger.info(f"Created {csv_file}.")
     else:
         try:
             load_csv(csv_file=csv_file)
         except KeyError as e:
-            logging.error(f"Cannot init tracking with invalid CSV file {csv_file}.")
+            logger.error(f"Cannot init tracking with invalid CSV file {csv_file}.")
             raise e
 
-        logging.info(f"Suitable CSV file already exists at {csv_file}.")
+        logger.info(f"Suitable CSV file already exists at {csv_file}.")
 
-    logging.info((
+    logger.info((
         "Tracking now initialized and ready for running process_next."
         "\n\tUse `add` to add new taxon_ids to the tracker."
         "\n\tYou may wish to add `process_next` as a cron job to periodically process taxon_ids."
@@ -129,14 +130,13 @@ def add(ctx: click.Context, taxon_id: str) -> None:
     data = load_csv(csv_file=ctx.obj['CSV_FILE_PATH'])
 
     if data.loc[data.taxon_id == taxon_id].shape[0] > 0:
-        logging.info(f"Already tracking taxon_id {taxon_id} -- doing nothing.")
+        logger.info(f"Already tracking taxon_id {taxon_id} -- doing nothing.")
     else:
-        logging.info((
+        logger.info((
             f"Adding new taxon_id {taxon_id} to taxon list. "
             f"This taxon_id will be processed in due course."
         ))
         new_entry = pandas.DataFrame.from_dict({
-            'index': [0],
             'taxon_id': [taxon_id],
             'last_checked': [''],
             'last_run_status': ['new'],
@@ -147,9 +147,8 @@ def add(ctx: click.Context, taxon_id: str) -> None:
             'generated_warning': [''],
             'checkpoint_time': [datetime.datetime.utcnow().isoformat()]
         }, dtype="string")
-        new_entry = new_entry.set_index('index')
         data = pandas.concat([data, new_entry])
-        data.to_csv(ctx.obj['CSV_FILE_PATH'])
+        data.to_csv(ctx.obj['CSV_FILE_PATH'], index=False)
 
 
 @taxon_tracker.command()
@@ -180,7 +179,7 @@ def status(ctx: click.Context, verbosity: int) -> None:
     # Summarise the current status of trackers
     print(f"Taxon tracking status:")
     for s in RunStatus:
-        logging.debug(s)
+        logger.debug(s)
         summary(s.value)
         if s == RunStatus.IN_PROGRESS:
             if verbosity == 1:
@@ -196,7 +195,7 @@ def status(ctx: click.Context, verbosity: int) -> None:
             print(f"\t{', '.join(ids)}")
 
 
-def do_next_action(ctx: click.Context) -> float:
+def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
     """
     Run the next job in the queue and return the amount of time to sleep after completing.
     """
@@ -210,32 +209,41 @@ def do_next_action(ctx: click.Context) -> float:
     candidates = candidates.sort_values(by=['priority'], ascending=False, na_position='last')
     row = candidates.iloc[0]
 
+    # Set backend logging to file
+    log_path = Path(path(f'log/{row.taxon_id}.log'))
+    log_path.touch()
+    for h in backend_logger.handlers:
+        backend_logger.removeHandler(h)
+    handler = logging.FileHandler(filename=log_path, encoding='utf-8')
+    handler.setFormatter(log_format)
+    backend_logger.addHandler(handler)
+    backend_logger.setLevel(logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO)
+    backend_logger.propagate = log_to_console
+
     # Execute the job
-    logging.basicConfig(
-        filename=path(f'log/{row.taxon_id}.log'),
-        level=logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO
-    )
     try:
-        if row.stage == Stage.FETCH_ACCESSION_CSV or row.stage == Stage.UPDATE_ACCESSION_CSV:
-            logging.info(f"Processing taxon id {row.taxon_id}: Fetch accession CSV")
-            data.loc[data.taxon_id == row.taxon_id] = fetch_accession_csv(ctx=ctx, row=row)
-        elif row.stage == Stage.FILTER_ACCESSION_CSV:
-            logging.info(f"Processing taxon id {row.taxon_id}: Filter accession numbers")
-            data.loc[data.taxon_id == row.taxon_id] = filter_accession_csv(ctx=ctx, row=row)
-        elif row.stage == Stage.CREATE_DROPLET_FARM:
-            logging.info(f"Processing taxon id {row.taxon_id}: Create droplet farm")
-            data.loc[data.taxon_id == row.taxon_id] = create_droplet_farm(ctx=ctx, row=row)
+        if row.stage == Stage.FETCH_ACCESSION_CSV.value or row.stage == Stage.UPDATE_ACCESSION_CSV.value:
+            logger.info(f"Processing taxon id {row.taxon_id}: Fetch accession CSV")
+            data.loc[data.taxon_id == row.taxon_id] = fetch_accession_csv(row=row, context=ctx.obj)
+        elif row.stage == Stage.FILTER_ACCESSION_CSV.value:
+            logger.info(f"Processing taxon id {row.taxon_id}: Filter accession numbers")
+            data.loc[data.taxon_id == row.taxon_id] = filter_accession_csv(row=row, context=ctx.obj)
+        elif row.stage == Stage.CREATE_DROPLET_FARM.value:
+            logger.info(f"Processing taxon id {row.taxon_id}: Create droplet farm")
+            data.loc[data.taxon_id == row.taxon_id] = create_droplet_farm(row=row, context=ctx.obj)
         else:
             raise RuntimeError(f"Unrecognised stage '{row.stage}' for taxon id {row.taxon_id}")
-    except Warning:
+    except Warning as w:
+        logger.warning(w)
         data.loc[data.taxon_id == row.taxon_id, ['generated_warning']] = ['True']
-    except Exception:
+    except Exception as e:
+        logger.error(e)
         data.loc[data.taxon_id == row.taxon_id, ['last_run_status', 'priority']] = [
             'error',
             Priority.STOPPED.value
         ]
 
-    data.to_csv(ctx.obj['CSV_FILE_PATH'])
+    data.to_csv(ctx.obj['CSV_FILE_PATH'], index=False)
     return 0.0
 
 
@@ -246,35 +254,57 @@ def do_next_action(ctx: click.Context) -> float:
     help='Perform only one heartbeat step.'
 )
 @click.pass_context
-def heartbeat(ctx: click.Context, sleep_time: float = 1.0, max_sleep: float = 3600.0, stop: bool = True) -> None:
+def heartbeat(
+        ctx: click.Context,
+        sleep_time: float = 1.0,
+        max_sleep: float = 3600.0,
+        stop: bool = True
+) -> None:
     """
     Daemon-like serial processing of jobs.
     """
-    def main_logging():
-        logging.basicConfig(
-            filename=path('log/main.log'),
-            level=logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO
-        )
+    _heartbeat(ctx=ctx, sleep_time=sleep_time, max_sleep=max_sleep, stop=stop)
 
-    try:
-        main_logging()
+
+def _heartbeat(
+        ctx: click.Context,
+        sleep_time: float = 1.0,
+        max_sleep: float = 3600.0,
+        stop: bool = True
+) -> None:
+    if not logger.handlers:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(log_format)
+        logger.addHandler(stream_handler)
+
+        file_handler = logging.FileHandler(filename=path('log/main.log'), encoding='utf-8')
+        file_handler.setFormatter(log_format)
+        logger.addHandler(file_handler)
+
+        logger.setLevel(logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO)
+
+    sleep_s = sleep_time
+
+    while True:
+        try:
+            sleep_s = do_next_action(ctx=ctx, log_to_console=stop)
+        except Warning as w:
+            if not sleep_s:
+                sleep_s = sleep_time
+            sleep_s = sleep_s * 2
+            if sleep_s > max_sleep:
+                sleep_s = max_sleep
+            logger.warning(w)
+        except Exception as e:
+            sleep_s = sleep_time * 2
+            logger.error(e)
+
         if stop:
-            logging.debug(f"heartbeat called with --once: performing next action and stopping.")
-            logging.debug(ctx)
-        sleep_time = do_next_action(ctx=ctx)
-    except Warning as w:
-        main_logging()
-        sleep_time = sleep_time * 2
-        if sleep_time > max_sleep:
-            sleep_time = max_sleep
-        logging.warning(w)
-    except Exception as e:
-        main_logging()
-        logging.error(e)
+            logger.debug(f"Stopping due to --once flag.")
+            break
 
-    if not stop:
-        sleep(sleep_time)
-        heartbeat(sleep_time=sleep_time, max_sleep=max_sleep, stop=stop)
+        logger.debug(f"Sleeping for {sleep_s}s.")
+        sleep(sleep_s)
 
 
 if __name__ == '__main__':

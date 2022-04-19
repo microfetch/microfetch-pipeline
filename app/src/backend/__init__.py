@@ -1,10 +1,13 @@
 import csv
 import datetime
+import logging
 from enum import Enum
 import click
 import os
 import pandas
 from . import fetch_accession_numbers
+
+logger = logging.getLogger(__file__)
 
 
 class Priority(Enum):
@@ -59,45 +62,65 @@ def update_stage(row: pandas.DataFrame, stage: Stage) -> pandas.DataFrame:
     """
     Update a record to show the next stage to be processed.
     """
-    row.priority = Stage.FILTER_ACCESSION_CSV.value
-    row.stage = Stage.FILTER_ACCESSION_CSV.value
-    row.stage_name = stage_names[row.stage]
-    row.checkpoint_time = datetime.datetime.utcnow().isoformat()
-    return row
+    logger.info((
+        f"Setting stage from '{row.stage_name}'[{row.stage}]"
+        f" to '{stage_names[stage]}'[{stage.value}]."
+    ))
+    # Avoid SettingWithCopyWarning
+    row_dict = row.to_dict()
+    row_dict['priority'] = stage.value
+    row_dict['stage'] = stage.value
+    row_dict['stage_name'] = stage_names[stage]
+    row_dict['checkpoint_time'] = datetime.datetime.utcnow().isoformat()
+    return pandas.DataFrame(row_dict, index=[0])
 
 
-def fetch_accession_csv(ctx: click.Context, row: pandas.DataFrame) -> pandas.DataFrame:
+def fetch_accession_csv(row: pandas.DataFrame, context: dict) -> pandas.DataFrame:
     """
     Lookup row.taxon_id in the EBI ENA database and download the metadata CSV.
 
     Return row updated with new values for the job scheduler.
     """
-    result = fetch_accession_numbers.fetch_records(
+    csv_path = get_accession_csv_path(row.taxon_id)
+
+    # Have to download this fresh every time until EBI ENA gives us access to filtering by time uploaded
+    result = fetch_accession_numbers.fetch_records_direct(
         taxon_id=row.taxon_id,
         accession_type='run',
         print_result=False
     )
-    with open(get_accession_csv_path(row.taxon_id), 'w+') as f:
-        writer = csv.writer(f)
-        writer.writerows(result)
+    result = pandas.DataFrame(result)
 
-    return update_stage(row, Stage.UPDATE_ACCESSION_CSV)
+    if not os.path.exists(csv_path):
+        result.to_csv(csv_path, index=False)
+        logger.info(f"Wrote {len(result)} accession results to {csv_path}")
+    else:
+        existing = pandas.read_csv(csv_path)
+        combined = pandas.concat([existing, result])
+        combined = combined.drop_duplicates(ignore_index=True)
+        combined.to_csv(csv_path, index=False)
+        n = len(combined) - len(existing)
+        if n > 0:
+            logger.info(f"Added {n} new accession results to {csv_path}")
+        else:
+            logger.info(f"No new accession results found.")
+
+    return update_stage(row, Stage.FILTER_ACCESSION_CSV)
 
 
-def filter_accession_csv(ctx: click.Context, row: pandas.DataFrame) -> pandas.DataFrame:
+def filter_accession_csv(row: pandas.DataFrame, context: dict) -> pandas.DataFrame:
     """
     Find a local metadata CSV file for row.taxon_id and filter for good candidate records.
     Fetch run accession numbers for those records.
-
     Return row updated with new values for the job scheduler.
     """
     return update_stage(row, Stage.CREATE_DROPLET_FARM)
 
 
-def create_droplet_farm(ctx: click.Context, row: pandas.DataFrame) -> pandas.DataFrame:
+def create_droplet_farm(row: pandas.DataFrame, context: dict) -> pandas.DataFrame:
     """
-    Assign the run accession numbers for row.taxon_id to DigitalOcean droplets and launch them.
-
+    Find a local metadata CSV file for row.taxon_id and filter for good candidate records.
+    Fetch run accession numbers for those records.
     Return row updated with new values for the job scheduler.
     """
     return update_stage(row, Stage.UPDATE_ACCESSION_CSV)

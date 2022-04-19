@@ -194,6 +194,27 @@ def determine_taxon_result_type(accession_type: str) -> str:
         raise Exception
 
 
+# This is outside the click wrapper to allow direct calling through Python
+def fetch_records_direct(
+        taxon_id: str,
+        accession_type: str = 'experiment',
+        result_type: str = 'read_experiment',
+        offset: int = 0,
+        limit: int = default_limit,
+        query: str = 'identifiers',
+        print_result: bool = True
+) -> list:
+    fields = canned_queries[f'{result_type}_{query}']
+    taxon_links = taxon_link.fetch(taxon_id, determine_taxon_result_type(accession_type))
+    accession_field_name = accession_field_name_map[accession_type]
+    accessions = [row[accession_field_name] for row in taxon_links]
+    result_list = fetch(accessions, accession_type, result_type, fields=fields, current_offset=offset,
+                        search_limit=limit)
+    if print_result:
+        print_csv(result_list, fields)
+    return result_list
+
+
 @click.command()
 @click.option('-t', '--taxon_id', required=True, help='NCBI ID. Will also fetch the subtree.')
 @click.option('-a', '--accession-type', required=False, default='experiment', help='experiment (default), sample, run')
@@ -204,15 +225,15 @@ def determine_taxon_result_type(accession_type: str) -> str:
 @click.option('-q', '--query', required=False, default='identifiers', help=f'all/identifiers')
 def fetch_records(taxon_id: str, accession_type: str, result_type: str, offset: int, limit: int, query: str,
                   print_result: bool = True) -> list:
-    fields = canned_queries[f'{result_type}_{query}']
-    taxon_links = taxon_link.fetch(taxon_id, determine_taxon_result_type(accession_type))
-    accession_field_name = accession_field_name_map[accession_type]
-    accessions = [row[accession_field_name] for row in taxon_links]
-    result_list = fetch(accessions, accession_type, result_type, fields=fields, current_offset=offset,
-                        search_limit=limit)
-    if print_result:
-        print_csv(result_list, fields)
-    return result_list
+    return fetch_records_direct(
+        taxon_id=taxon_id,
+        accession_type=accession_type,
+        result_type=result_type,
+        offset=offset,
+        limit=limit,
+        query=query,
+        print_result=print_result
+    )
 
 
 def print_csv(result_list: List[Dict[str, str]], columns: List[str]):

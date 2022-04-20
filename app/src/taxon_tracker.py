@@ -7,7 +7,7 @@ from typing import Union
 from time import sleep
 import re
 
-from backend import fetch_accession_csv, filter_accession_csv, create_droplet_farm, path, stage_names
+from backend import fetch_accession_csv, filter_accession_csv, create_droplet_farm, stage_names
 from backend import Priority as Priority
 from backend import Stage as Stage
 from backend import RunStatus as RunStatus
@@ -18,6 +18,20 @@ import pandas
 
 logger = logging.getLogger(__file__)
 log_format = logging.Formatter(fmt='%(asctime)s %(levelname)s:\t%(message)s')
+
+dtypes = {
+    'taxon_id': "string",
+    'last_checked': "string",
+    'last_run_status': "string",
+    'needs_attention': "string",
+    'stage': "int",
+    'stage_name': "string",
+    'priority': "int",
+    'generated_warning': "string",
+    'checkpoint_time': "string"
+}
+headers = dtypes.keys()
+data_directory = os.path.join(os.path.dirname(__file__), '..', 'data')
 
 
 def load_csv(csv_file: str) -> Union[pandas.DataFrame, bool]:
@@ -47,28 +61,20 @@ def load_csv(csv_file: str) -> Union[pandas.DataFrame, bool]:
     return data
 
 
-dtypes = {
-    'taxon_id': "string",
-    'last_checked': "string",
-    'last_run_status': "string",
-    'needs_attention': "string",
-    'stage': "int",
-    'stage_name': "string",
-    'priority': "int",
-    'generated_warning': "string",
-    'checkpoint_time': "string"
-}
-headers = dtypes.keys()
-csv_location = path("data/microfetch.csv")
-
-
 @click.group()
 @click.option(
-    '-f', '--file', 'csv_file',
+    '-d', '--data-directory', 'data_dir',
     required=False,
-    default=csv_location,
+    default=data_directory,
     type=click.Path(),
-    help='Tracker CSV file created with `init`.'
+    help='Program data location.'
+)
+@click.option(
+    '-l', '--log-directory', 'log_dir',
+    required=False,
+    default=None,
+    type=click.Path(),
+    help='Logfile location -- if empty will be in <data_dir>/log.'
 )
 @click.option(
     '-v', '--verbose',
@@ -76,22 +82,58 @@ csv_location = path("data/microfetch.csv")
     help='Print debugging information.'
 )
 @click.pass_context
-def taxon_tracker(ctx: click.Context, csv_file: str, verbose: bool) -> None:
+def taxon_tracker(
+        ctx: click.Context,
+        data_dir: str = data_directory,
+        log_dir: str = None,
+        verbose: bool = False
+) -> None:
     # ensure that ctx.obj exists and is a dict (in case script is called
     # by means other than the main `if` block below)
     ctx.ensure_object(dict)
-    # TODO: csv_file_path should be data_dir? Then everything can follow from there.
-    ctx.obj['CSV_FILE_PATH'] = csv_file
+
+    ctx.obj['DATA_DIR'] = os.path.abspath(data_dir)
+    ctx.obj['LOG_DIR'] = os.path.abspath(log_dir if log_dir else os.path.join(ctx.obj['DATA_DIR'], 'log'))
     ctx.obj['VERBOSE'] = verbose
+
+    # Set up logging
+    if not logger.handlers:
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(log_format)
+        logger.addHandler(stream_handler)
+
+        log_location = Path(os.path.join(ctx.obj['LOG_DIR'], 'main.log'))
+        # Create the directory skeleton if necessary
+        os.makedirs(os.path.dirname(log_location), exist_ok=True)
+        log_location.touch(exist_ok=True)
+        file_handler = logging.FileHandler(filename=log_location, encoding='utf-8')
+        file_handler.setFormatter(log_format)
+        logger.addHandler(file_handler)
+
+        logger.setLevel(logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO)
 
 
 @taxon_tracker.command()
 @click.pass_context
 def init(ctx: click.Context) -> None:
     """
-    Create CSV file for tracking taxon_ids.
+    Create files and directories for tracking taxon_ids.
     """
-    csv_file = ctx.obj['CSV_FILE_PATH']
+    # Create directories
+    paths = [
+        os.path.join(ctx.obj['LOG_DIR']),
+        os.path.join(ctx.obj['DATA_DIR'],'.queue'),
+        os.path.join(ctx.obj['DATA_DIR'],'ENA_accession_numbers'),
+        os.path.join(ctx.obj['DATA_DIR'],'ENA_metadata')
+    ]
+    for path in paths:
+        if os.path.exists(path):
+            logger.debug(f"Path {path} already exists.")
+        else:
+            os.makedirs(path, exist_ok=True)
+            logger.debug(f"Created {path}")
+
+    csv_file = os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv")
     if not os.path.exists(csv_file):
         with open(csv_file, 'w+') as f:
             logger.debug(f"Creating {csv_file} with headers: {', '.join(headers)}")
@@ -114,8 +156,8 @@ def init(ctx: click.Context) -> None:
     ))
 
 
-def _add_to_queue(command: str):
-    Path(path(f"data/.queue/{command}")).touch(exist_ok=True)
+def _add_to_queue(command: str, ctx: click.Context) -> None:
+    Path(os.path.join(ctx.obj["DATA_DIR"], f".queue/{command}")).touch(exist_ok=True)
 
 
 @taxon_tracker.command()
@@ -132,12 +174,12 @@ def add(ctx: click.Context, taxon_id: str) -> None:
     Adding a taxon_id will not force that taxon_id to be processed next.
     It will be prioritised by process_next above previously-run taxon_ids.
     """
-    _add_to_queue(f"add {taxon_id}")
+    _add_to_queue(command=f"add {taxon_id}", ctx=ctx)
     logger.info(f"Registered command 'add {taxon_id}' in command queue.")
 
 
 def _add(ctx: click.Context, taxon_id: str) -> None:
-    data = load_csv(csv_file=ctx.obj['CSV_FILE_PATH'])
+    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"))
     taxon_id = str(taxon_id)
 
     if data.loc[data.taxon_id == taxon_id].shape[0] > 0:
@@ -159,7 +201,7 @@ def _add(ctx: click.Context, taxon_id: str) -> None:
             'checkpoint_time': [datetime.datetime.utcnow().isoformat()]
         }, dtype="string")
         data = pandas.concat([data, new_entry])
-        data.to_csv(ctx.obj['CSV_FILE_PATH'], index=False)
+        data.to_csv(os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"), index=False)
 
 
 @taxon_tracker.command()
@@ -185,7 +227,7 @@ def status(ctx: click.Context, verbosity: int) -> None:
         if len(ids):
             print(f"\t{', '.join(ids)}")
 
-    data = load_csv(csv_file=ctx.obj['CSV_FILE_PATH'])
+    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"))
 
     # Summarise the current status of trackers
     print(f"Taxon tracking status:")
@@ -213,11 +255,12 @@ def process_queued_queries(ctx: click.Context) -> None:
     # Commands are queued by creating empty files with the command as the filename
     # in a special directory data/.queue
     # This approach avoids write conflicts in data/microfetch.csv
-    files = os.listdir(path('data/.queue'))
+    d = os.path.join(ctx.obj["DATA_DIR"], '.queue')
+    files = os.listdir(d)
     if len(files) == 0:
         return
 
-    for file in os.listdir(path('data/.queue')):
+    for file in files:
         try:
             command, args = re.match(r"^(?P<command>\S+) (?P<args>.+)$", file).groups()
             if command == "":
@@ -227,7 +270,7 @@ def process_queued_queries(ctx: click.Context) -> None:
                 args = args.lower()
             if command == "add":
                 _add(ctx=ctx, taxon_id=args)
-            os.remove(path(f"data/.queue/{file}"))
+            os.remove(os.path.join(d, file))
         except AttributeError:
             continue
 
@@ -237,7 +280,7 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
     Run the next job in the queue and return the amount of time to sleep after completing.
     """
     # Find the next job
-    data = load_csv(csv_file=ctx.obj['CSV_FILE_PATH'])
+    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"))
 
     candidates = data.loc[(data.priority > 0)]
     if candidates.shape[0] == 0:
@@ -247,7 +290,7 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
     row = candidates.iloc[0]
 
     # Set backend logging to file
-    log_path = Path(path(f'log/{row.taxon_id}.log'))
+    log_path = Path(os.path.join(ctx.obj['LOG_DIR'], f'{row.taxon_id}.log'))
     log_path.touch()
     for h in backend_logger.handlers:
         backend_logger.removeHandler(h)
@@ -281,7 +324,7 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
             Priority.STOPPED.value
         ]
 
-    data.to_csv(ctx.obj['CSV_FILE_PATH'], index=False)
+    data.to_csv(os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"), index=False)
     return 0.0
 
 
@@ -310,17 +353,6 @@ def _heartbeat(
         max_sleep: float = 3600.0,
         stop: bool = True
 ) -> None:
-    if not logger.handlers:
-        stream_handler = logging.StreamHandler()
-        stream_handler.setFormatter(log_format)
-        logger.addHandler(stream_handler)
-
-        file_handler = logging.FileHandler(filename=path('log/main.log'), encoding='utf-8')
-        file_handler.setFormatter(log_format)
-        logger.addHandler(file_handler)
-
-        logger.setLevel(logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO)
-
     sleep_s = sleep_time
 
     while True:

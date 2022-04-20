@@ -24,3 +24,7 @@ RUN useradd --home-dir /app --user-group --no-create-home appuser
 WORKDIR /app
 COPY --chown=appuser:appuser ./app .
 USER appuser
+
+# Set up the app environment
+ENTRYPOINT python src/taxon_tracker.py -v --data-directory /app/data init && \
+		python src/taxon_tracker.py -v heartbeat

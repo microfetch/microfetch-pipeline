@@ -29,17 +29,17 @@
       - priority in the event loop -- higher is higher priority
     - `generated_waring`
       - boolean whether the pipeline generated a warning
-- `./log/<taxon_id>.log`
+- `<log_dir>/<taxon_id>.log`
   - Log for the pipeline of `taxon_id`
-- `fetch_accession_links.py`
+- `./src/backend/fetch_accession_links.py`
   - Takes `taxon_id` and returns `<taxon_id>.csv`
   - TODO: modify to also take a `last_checked` value and only return results since then
-- `./data/ENA_metadata/<taxon_id>.csv`
+- `<data_dir>/ENA_metadata/<taxon_id>.csv`
   - metadata for European Nucleotide Archive records matching `taxon_id`
 - `parse_fetched_data.py`
   - Takes `<taxon_id>.csv` and returns a list of **run accession numbers**
   for valid and useful entries.
-- `./data/ENA_accession_numbers/<taxon_id>.csv`
+- `<data_dir>/ENA_accession_numbers/<taxon_id>.csv`
   - comma-separated value file for `taxon_id` accessions with columns:
     - `run_accession_number`
     - `excluded`

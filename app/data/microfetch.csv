@@ -1,3 +1,0 @@
-taxon_id,last_checked,last_run_status,needs_attention,stage,stage_name,priority,generated_warning,checkpoint_time
-570,<NA>,new,,1,update accession CSV,0,,2022-04-20 10:52:15.056920
-755,<NA>,ready,,1,update accession CSV,1,,2022-04-20 12:00:30.143053

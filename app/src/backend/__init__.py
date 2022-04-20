@@ -47,15 +47,11 @@ stage_names = {
 }
 
 
-def path(relative_path: str):
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), '../..', relative_path))
-
-
-def get_accession_csv_path(taxon_id: str) -> str:
+def get_accession_csv_path(taxon_id: str, root_dir: str) -> str:
     """
     Return the path to the Accession metadata CSV for taxon_id
     """
-    return path(f'data/ENA_metadata/{taxon_id}.csv')
+    return os.path.join(root_dir, 'ENA_metadata', f'{taxon_id}.csv')
 
 
 def update_stage(row: pandas.Series, stage: Stage) -> pandas.Series:
@@ -86,7 +82,7 @@ def fetch_accession_csv(row: pandas.Series, context: dict) -> pandas.Series:
 
     Return row updated with new values for the job scheduler.
     """
-    csv_path = get_accession_csv_path(row.taxon_id)
+    csv_path = get_accession_csv_path(row.taxon_id, context['DATA_DIR'])
 
     # Have to download this fresh every time until EBI ENA gives us access to filtering by time uploaded
     result = fetch_accession_numbers.fetch_records_direct(

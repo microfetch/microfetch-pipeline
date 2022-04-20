@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 from typing import Union
 from time import sleep
+import re
 
 from backend import fetch_accession_csv, filter_accession_csv, create_droplet_farm, path, stage_names
 from backend import Priority as Priority
@@ -79,7 +80,7 @@ def taxon_tracker(ctx: click.Context, csv_file: str, verbose: bool) -> None:
     # ensure that ctx.obj exists and is a dict (in case script is called
     # by means other than the main `if` block below)
     ctx.ensure_object(dict)
-
+    # TODO: csv_file_path should be data_dir? Then everything can follow from there.
     ctx.obj['CSV_FILE_PATH'] = csv_file
     ctx.obj['VERBOSE'] = verbose
 
@@ -113,6 +114,10 @@ def init(ctx: click.Context) -> None:
     ))
 
 
+def _add_to_queue(command: str):
+    Path(path(f"data/.queue/{command}")).touch(exist_ok=True)
+
+
 @taxon_tracker.command()
 @click.argument(
     'taxon_id',
@@ -127,7 +132,13 @@ def add(ctx: click.Context, taxon_id: str) -> None:
     Adding a taxon_id will not force that taxon_id to be processed next.
     It will be prioritised by process_next above previously-run taxon_ids.
     """
+    _add_to_queue(f"add {taxon_id}")
+    logger.info(f"Registered command 'add {taxon_id}' in command queue.")
+
+
+def _add(ctx: click.Context, taxon_id: str) -> None:
     data = load_csv(csv_file=ctx.obj['CSV_FILE_PATH'])
+    taxon_id = str(taxon_id)
 
     if data.loc[data.taxon_id == taxon_id].shape[0] > 0:
         logger.info(f"Already tracking taxon_id {taxon_id} -- doing nothing.")
@@ -195,6 +206,32 @@ def status(ctx: click.Context, verbosity: int) -> None:
             print(f"\t{', '.join(ids)}")
 
 
+def process_queued_queries(ctx: click.Context) -> None:
+    """
+    Process the actions registered in the data/.queue directory.
+    """
+    # Commands are queued by creating empty files with the command as the filename
+    # in a special directory data/.queue
+    # This approach avoids write conflicts in data/microfetch.csv
+    files = os.listdir(path('data/.queue'))
+    if len(files) == 0:
+        return
+
+    for file in os.listdir(path('data/.queue')):
+        try:
+            command, args = re.match(r"^(?P<command>\S+) (?P<args>.+)$", file).groups()
+            if command == "":
+                continue
+            else:
+                command = command.lower()
+                args = args.lower()
+            if command == "add":
+                _add(ctx=ctx, taxon_id=args)
+            os.remove(path(f"data/.queue/{file}"))
+        except AttributeError:
+            continue
+
+
 def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
     """
     Run the next job in the queue and return the amount of time to sleep after completing.
@@ -224,15 +261,16 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
     try:
         if row.stage == Stage.FETCH_ACCESSION_CSV.value or row.stage == Stage.UPDATE_ACCESSION_CSV.value:
             logger.info(f"Processing taxon id {row.taxon_id}: Fetch accession CSV")
-            data.loc[data.taxon_id == row.taxon_id] = fetch_accession_csv(row=row, context=ctx.obj)
+            result = fetch_accession_csv(row=row, context=ctx.obj)
         elif row.stage == Stage.FILTER_ACCESSION_CSV.value:
             logger.info(f"Processing taxon id {row.taxon_id}: Filter accession numbers")
-            data.loc[data.taxon_id == row.taxon_id] = filter_accession_csv(row=row, context=ctx.obj)
+            result = filter_accession_csv(row=row, context=ctx.obj)
         elif row.stage == Stage.CREATE_DROPLET_FARM.value:
             logger.info(f"Processing taxon id {row.taxon_id}: Create droplet farm")
-            data.loc[data.taxon_id == row.taxon_id] = create_droplet_farm(row=row, context=ctx.obj)
+            result = create_droplet_farm(row=row, context=ctx.obj)
         else:
             raise RuntimeError(f"Unrecognised stage '{row.stage}' for taxon id {row.taxon_id}")
+        data.loc[data.taxon_id == row.taxon_id] = result.array
     except Warning as w:
         logger.warning(w)
         data.loc[data.taxon_id == row.taxon_id, ['generated_warning']] = ['True']
@@ -286,6 +324,10 @@ def _heartbeat(
     sleep_s = sleep_time
 
     while True:
+        try:
+            process_queued_queries(ctx=ctx)
+        except Exception as e:
+            logger.error(e)
         try:
             sleep_s = do_next_action(ctx=ctx, log_to_console=stop)
         except Warning as w:

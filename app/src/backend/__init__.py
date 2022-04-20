@@ -58,7 +58,7 @@ def get_accession_csv_path(taxon_id: str) -> str:
     return path(f'data/ENA_metadata/{taxon_id}.csv')
 
 
-def update_stage(row: pandas.DataFrame, stage: Stage) -> pandas.DataFrame:
+def update_stage(row: pandas.Series, stage: Stage) -> pandas.Series:
     """
     Update a record to show the next stage to be processed.
     """
@@ -72,10 +72,15 @@ def update_stage(row: pandas.DataFrame, stage: Stage) -> pandas.DataFrame:
     row_dict['stage'] = stage.value
     row_dict['stage_name'] = stage_names[stage]
     row_dict['checkpoint_time'] = datetime.datetime.utcnow().isoformat()
-    return pandas.DataFrame(row_dict, index=[0])
+    if stage == Stage.FILTER_ACCESSION_CSV:
+        row_dict['last_run_status'] = RunStatus.IN_PROGRESS.value
+    if stage == Stage.CREATE_DROPLET_FARM:
+        # TODO: This will be set via a callback from digital ocean
+        row_dict['last_run_status'] = RunStatus.READY.value
+    return pandas.Series(row_dict)
 
 
-def fetch_accession_csv(row: pandas.DataFrame, context: dict) -> pandas.DataFrame:
+def fetch_accession_csv(row: pandas.Series, context: dict) -> pandas.Series:
     """
     Lookup row.taxon_id in the EBI ENA database and download the metadata CSV.
 
@@ -108,19 +113,21 @@ def fetch_accession_csv(row: pandas.DataFrame, context: dict) -> pandas.DataFram
     return update_stage(row, Stage.FILTER_ACCESSION_CSV)
 
 
-def filter_accession_csv(row: pandas.DataFrame, context: dict) -> pandas.DataFrame:
+def filter_accession_csv(row: pandas.Series, context: dict) -> pandas.Series:
     """
     Find a local metadata CSV file for row.taxon_id and filter for good candidate records.
     Fetch run accession numbers for those records.
     Return row updated with new values for the job scheduler.
     """
+    logger.info(f"filter_accession_csv not yet implemented")
     return update_stage(row, Stage.CREATE_DROPLET_FARM)
 
 
-def create_droplet_farm(row: pandas.DataFrame, context: dict) -> pandas.DataFrame:
+def create_droplet_farm(row: pandas.Series, context: dict) -> pandas.Series:
     """
     Find a local metadata CSV file for row.taxon_id and filter for good candidate records.
     Fetch run accession numbers for those records.
     Return row updated with new values for the job scheduler.
     """
+    logger.info(f"create_droplet_farm not yet implemented")
     return update_stage(row, Stage.UPDATE_ACCESSION_CSV)

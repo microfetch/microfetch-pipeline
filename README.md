@@ -99,3 +99,9 @@ Possibilities:
 - Add novel taxon ids as entries in `./microfetch.csv`
 - Summarise actions taken for the user
 
+# App
+
+- Dockerized Python command line application
+- Runs a heartbeat script checking and updating taxon_ids
+- Exposes web interface for callbacks from droplets
+  - TODO: web interface will be used for other commands like adding taxon_ids

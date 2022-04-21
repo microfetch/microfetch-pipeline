@@ -2,22 +2,24 @@ import csv
 import datetime
 import logging
 import os
+import re
+import click
+import pandas
+
 from pathlib import Path
 from typing import Union
 from time import sleep
-import re
 
 from backend import fetch_accession_csv, filter_accession_csv, create_droplet_farm, stage_names
 from backend import Priority as Priority
 from backend import Stage as Stage
 from backend import RunStatus as RunStatus
 from backend import logger as backend_logger
+from backend import log_format as log_format
 
-import click
-import pandas
+from backend.server import run_server
 
 logger = logging.getLogger(__file__)
-log_format = logging.Formatter(fmt='%(asctime)s %(levelname)s:\t%(message)s')
 
 dtypes = {
     'taxon_id': "string",
@@ -111,6 +113,12 @@ def taxon_tracker(
         logger.addHandler(file_handler)
 
         logger.setLevel(logging.DEBUG if ctx.obj['VERBOSE'] else logging.INFO)
+
+
+@taxon_tracker.command()
+@click.pass_context
+def serve(ctx: click.Context) -> None:
+    run_server(ctx=ctx)
 
 
 @taxon_tracker.command()
@@ -325,7 +333,7 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
         ]
 
     data.to_csv(os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"), index=False)
-    return 0.0
+    return 60.0  # TODO: This should be a setting or something. In real deploys it can be ~0.0
 
 
 @taxon_tracker.command()

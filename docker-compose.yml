@@ -1,8 +1,10 @@
 version: '3.7'
 
 services:
+
   app:
     build: .
+    ports:
+      - "8001:80"
     volumes:
       - ./app:/app
-#    command: tail -F anything

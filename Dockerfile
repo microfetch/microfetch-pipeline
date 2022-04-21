@@ -27,4 +27,5 @@ USER appuser
 
 # Set up the app environment
 ENTRYPOINT python src/taxon_tracker.py -v --data-directory /app/data init && \
-		python src/taxon_tracker.py -v heartbeat
+		(python src/taxon_tracker.py -v --data-directory /app/data serve &) && \
+		python src/taxon_tracker.py -v --data-directory /app/data heartbeat

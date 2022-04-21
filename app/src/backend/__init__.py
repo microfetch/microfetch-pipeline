@@ -7,7 +7,9 @@ import os
 import pandas
 from . import fetch_accession_numbers
 
+
 logger = logging.getLogger(__file__)
+log_format = logging.Formatter(fmt='%(asctime)s %(levelname)s:\t%(message)s')
 
 
 class Priority(Enum):

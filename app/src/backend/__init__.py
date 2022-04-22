@@ -1,6 +1,6 @@
 import datetime
 import logging
-from enum import IntEnum, StrEnum
+from enum import IntEnum, Enum
 import os
 import pandas
 from . import fetch_accession_numbers
@@ -10,16 +10,16 @@ logger = logging.getLogger(__file__)
 log_format = logging.Formatter(fmt='%(asctime)s %(levelname)s:\t%(message)s')
 
 
-class Route(StrEnum):
+class Route(Enum):
     """
     Keeping fixed file paths DRY
     """
-    csv = "microfetch.csv"
-    main_log = "main.log"
-    server_log = "server.log"
-    queue_dir = ".queue"
-    accession_dir = "ENA_accession_numbers"
-    metadata_dir = "ENA_metadata"
+    CSV = "microfetch.csv"
+    MAIN_LOG = "main.log"
+    SERVER_LOG = "server.log"
+    QUEUE_DIR = ".queue"
+    ACCESSION_DIR = "ENA_accession_numbers"
+    METADATA_DIR = "ENA_metadata"
 
 
 class Priority(IntEnum):
@@ -35,7 +35,7 @@ class Priority(IntEnum):
     URGENT = 6
 
 
-class RunStatus(StrEnum):
+class RunStatus(Enum):
     """
     Text descriptions of the run statuses
     """

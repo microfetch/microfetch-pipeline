@@ -101,13 +101,13 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
 def run_server(ctx: click.Context):
     global queue_dir
-    queue_dir = os.path.join(ctx.obj['DATA_DIR'], Route.queue_dir)
+    queue_dir = os.path.join(ctx.obj['DATA_DIR'], Route.QUEUE_DIR.value)
 
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(log_format)
     logger.addHandler(stream_handler)
 
-    log_location = Path(os.path.join(ctx.obj['LOG_DIR'], Route.server_log))
+    log_location = Path(os.path.join(ctx.obj['LOG_DIR'], Route.SERVER_LOG.value))
     # Create the directory skeleton if necessary
     os.makedirs(os.path.dirname(log_location), exist_ok=True)
     log_location.touch(exist_ok=True)

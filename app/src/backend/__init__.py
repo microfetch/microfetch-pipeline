@@ -1,8 +1,6 @@
-import csv
 import datetime
 import logging
-from enum import Enum
-import click
+from enum import IntEnum, StrEnum
 import os
 import pandas
 from . import fetch_accession_numbers
@@ -12,7 +10,22 @@ logger = logging.getLogger(__file__)
 log_format = logging.Formatter(fmt='%(asctime)s %(levelname)s:\t%(message)s')
 
 
-class Priority(Enum):
+class Route(StrEnum):
+    """
+    Keeping fixed file paths DRY
+    """
+    csv = "microfetch.csv"
+    main_log = "main.log"
+    server_log = "server.log"
+    queue_dir = ".queue"
+    accession_dir = "ENA_accession_numbers"
+    metadata_dir = "ENA_metadata"
+
+
+class Priority(IntEnum):
+    """
+    Higher priorities have higher numbers
+    """
     STOPPED = 0
     VERY_LOW = 1
     LOW = 2
@@ -22,7 +35,10 @@ class Priority(Enum):
     URGENT = 6
 
 
-class RunStatus(Enum):
+class RunStatus(StrEnum):
+    """
+    Text descriptions of the run statuses
+    """
     NEW = 'new'
     IN_PROGRESS = 'in progress'
     READY = 'ready'
@@ -31,8 +47,10 @@ class RunStatus(Enum):
     ERROR = 'error'
 
 
-class Stage(Enum):
+class Stage(IntEnum):
     """
+    The next action required on a taxon_id.
+
     Numbers chosen to be interchangeable with Priority
     """
     UPDATE_ACCESSION_CSV = 1
@@ -41,6 +59,7 @@ class Stage(Enum):
     CREATE_DROPLET_FARM = 4
 
 
+# Friendly name for stages
 stage_names = {
     Stage.FILTER_ACCESSION_CSV: 'filter accession CSV',
     Stage.UPDATE_ACCESSION_CSV: 'update accession CSV',

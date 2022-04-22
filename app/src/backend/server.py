@@ -12,6 +12,7 @@ import click
 from pathlib import Path
 
 from . import log_format as log_format
+from . import Route as Route
 
 
 logger = logging.getLogger(__file__)
@@ -100,13 +101,13 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
 def run_server(ctx: click.Context):
     global queue_dir
-    queue_dir = os.path.join(ctx.obj['DATA_DIR'], '.queue')
+    queue_dir = os.path.join(ctx.obj['DATA_DIR'], Route.queue_dir)
 
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(log_format)
     logger.addHandler(stream_handler)
 
-    log_location = Path(os.path.join(ctx.obj['LOG_DIR'], 'server.log'))
+    log_location = Path(os.path.join(ctx.obj['LOG_DIR'], Route.server_log))
     # Create the directory skeleton if necessary
     os.makedirs(os.path.dirname(log_location), exist_ok=True)
     log_location.touch(exist_ok=True)

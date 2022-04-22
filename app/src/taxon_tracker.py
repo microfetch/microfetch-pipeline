@@ -14,6 +14,7 @@ from backend import fetch_accession_csv, filter_accession_csv, create_droplet_fa
 from backend import Priority as Priority
 from backend import Stage as Stage
 from backend import RunStatus as RunStatus
+from backend import Route as Route
 from backend import logger as backend_logger
 from backend import log_format as log_format
 
@@ -104,7 +105,7 @@ def taxon_tracker(
         stream_handler.setFormatter(log_format)
         logger.addHandler(stream_handler)
 
-        log_location = Path(os.path.join(ctx.obj['LOG_DIR'], 'main.log'))
+        log_location = Path(os.path.join(ctx.obj['LOG_DIR'], Route.main_log))
         # Create the directory skeleton if necessary
         os.makedirs(os.path.dirname(log_location), exist_ok=True)
         log_location.touch(exist_ok=True)
@@ -130,9 +131,9 @@ def init(ctx: click.Context) -> None:
     # Create directories
     paths = [
         os.path.join(ctx.obj['LOG_DIR']),
-        os.path.join(ctx.obj['DATA_DIR'],'.queue'),
-        os.path.join(ctx.obj['DATA_DIR'],'ENA_accession_numbers'),
-        os.path.join(ctx.obj['DATA_DIR'],'ENA_metadata')
+        os.path.join(ctx.obj['DATA_DIR'], Route.queue_dir),
+        os.path.join(ctx.obj['DATA_DIR'], Route.accession_dir),
+        os.path.join(ctx.obj['DATA_DIR'], Route.metadata_dir)
     ]
     for path in paths:
         if os.path.exists(path):
@@ -141,7 +142,7 @@ def init(ctx: click.Context) -> None:
             os.makedirs(path, exist_ok=True)
             logger.debug(f"Created {path}")
 
-    csv_file = os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv")
+    csv_file = os.path.join(ctx.obj['DATA_DIR'], Route.csv)
     if not os.path.exists(csv_file):
         with open(csv_file, 'w+') as f:
             logger.debug(f"Creating {csv_file} with headers: {', '.join(headers)}")
@@ -187,7 +188,7 @@ def add(ctx: click.Context, taxon_id: str) -> None:
 
 
 def _add(ctx: click.Context, taxon_id: str) -> None:
-    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"))
+    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], Route.csv))
     taxon_id = str(taxon_id)
 
     if data.loc[data.taxon_id == taxon_id].shape[0] > 0:
@@ -209,7 +210,17 @@ def _add(ctx: click.Context, taxon_id: str) -> None:
             'checkpoint_time': [datetime.datetime.utcnow().isoformat()]
         }, dtype="string")
         data = pandas.concat([data, new_entry])
-        data.to_csv(os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"), index=False)
+        data.to_csv(os.path.join(ctx.obj['DATA_DIR'], Route.csv), index=False)
+
+
+def _update_droplet_status(ctx: click.Context, taxon_id: str, droplet_ip: str, new_status: str) -> None:
+    """
+    Update the status of all accession records assigned to a droplet.
+    """
+    csv_file = os.path.join(ctx.obj['DATA_DIR'], Route.accession_dir, taxon_id)
+    df = pandas.read_csv(csv_file)
+    df[df.droplet_ip == droplet_ip, 'status'] = new_status
+    df.to_csv(csv_file)
 
 
 @taxon_tracker.command()
@@ -235,7 +246,7 @@ def status(ctx: click.Context, verbosity: int) -> None:
         if len(ids):
             print(f"\t{', '.join(ids)}")
 
-    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"))
+    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], Route.csv))
 
     # Summarise the current status of trackers
     print(f"Taxon tracking status:")
@@ -263,7 +274,7 @@ def process_queued_queries(ctx: click.Context) -> None:
     # Commands are queued by creating empty files with the command as the filename
     # in a special directory data/.queue
     # This approach avoids write conflicts in data/microfetch.csv
-    d = os.path.join(ctx.obj["DATA_DIR"], '.queue')
+    d = os.path.join(ctx.obj["DATA_DIR"], Route.queue_dir)
     files = os.listdir(d)
     if len(files) == 0:
         return
@@ -288,7 +299,7 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
     Run the next job in the queue and return the amount of time to sleep after completing.
     """
     # Find the next job
-    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"))
+    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], Route.csv))
 
     candidates = data.loc[(data.priority > 0)]
     if candidates.shape[0] == 0:
@@ -332,7 +343,7 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
             Priority.STOPPED.value
         ]
 
-    data.to_csv(os.path.join(ctx.obj['DATA_DIR'], "microfetch.csv"), index=False)
+    data.to_csv(os.path.join(ctx.obj['DATA_DIR'], Route.csv), index=False)
     return 60.0  # TODO: This should be a setting or something. In real deploys it can be ~0.0
 
 

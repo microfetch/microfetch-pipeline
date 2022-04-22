@@ -10,11 +10,19 @@ from pathlib import Path
 from typing import Union
 from time import sleep
 
-from backend import fetch_accession_csv, filter_accession_csv, create_droplet_farm, stage_names
+from backend import \
+    fetch_accession_csv, \
+    filter_accession_csv, \
+    create_droplet_farm, \
+    mark_data_collected, \
+    STAGE_NAMES, \
+    SETTINGS
+
 from backend import Priority as Priority
 from backend import Stage as Stage
 from backend import RunStatus as RunStatus
 from backend import Route as Route
+from backend import Setting as Setting
 from backend import logger as backend_logger
 from backend import log_format as log_format
 
@@ -133,7 +141,7 @@ def init(ctx: click.Context) -> None:
         os.path.join(ctx.obj['LOG_DIR']),
         os.path.join(ctx.obj['DATA_DIR'], Route.QUEUE_DIR.value),
         os.path.join(ctx.obj['DATA_DIR'], Route.ACCESSION_DIR.value),
-        os.path.join(ctx.obj['DATA_DIR'], Route.METADATA_DIR.value)
+        os.path.join(ctx.obj['DATA_DIR'], Route.FILTERED_DIR.value)
     ]
     for path in paths:
         if os.path.exists(path):
@@ -171,20 +179,25 @@ def _add_to_queue(command: str, ctx: click.Context) -> None:
 
 @taxon_tracker.command()
 @click.argument(
-    'taxon_id',
-    required=True
+    'taxon_ids',
+    nargs=-1
 )
 @click.pass_context
-def add(ctx: click.Context, taxon_id: str) -> None:
+def add(ctx: click.Context, taxon_ids: str) -> None:
     """
-    Add a taxon_id to the tracker.
+    Add taxon_ids to the tracker.
     When the pipeline processes the taxon_id, it will also fetch subtrees for that taxon_id.
 
     Adding a taxon_id will not force that taxon_id to be processed next.
     It will be prioritised by process_next above previously-run taxon_ids.
     """
-    _add_to_queue(command=f"add {taxon_id}", ctx=ctx)
-    logger.info(f"Registered command 'add {taxon_id}' in command queue.")
+    if len(taxon_ids) == 0:
+        logger.debug(f"No taxon_id to add.")
+    for taxon_id in taxon_ids:
+        _add_to_queue(command=f"add {taxon_id}", ctx=ctx)
+        logger.debug(f"Registered command 'add {taxon_id}' in command queue.")
+
+    logger.info(f"Queued {len(taxon_ids)} taxon ids for adding.")
 
 
 def _add(ctx: click.Context, taxon_id: str) -> None:
@@ -204,7 +217,7 @@ def _add(ctx: click.Context, taxon_id: str) -> None:
             'last_run_status': ['new'],
             'needs_attention': [''],
             'stage': [Stage.FETCH_ACCESSION_CSV.value],
-            'stage_name': [stage_names[Stage.FETCH_ACCESSION_CSV]],
+            'stage_name': [STAGE_NAMES[Stage.FETCH_ACCESSION_CSV]],
             'priority': [Stage.FETCH_ACCESSION_CSV.value],
             'generated_warning': [''],
             'checkpoint_time': [datetime.datetime.utcnow().isoformat()]
@@ -220,7 +233,28 @@ def _update_droplet_status(ctx: click.Context, taxon_id: str, droplet_ip: str, n
     csv_file = os.path.join(ctx.obj['DATA_DIR'], Route.ACCESSION_DIR.value, taxon_id)
     df = pandas.read_csv(csv_file)
     df[df.droplet_ip == droplet_ip, 'status'] = new_status
-    df.to_csv(csv_file)
+    df.to_csv(csv_file, index=False)
+
+
+@taxon_tracker.command()
+@click.option('-t', '--taxon-id', required=True)
+@click.option('-d', '--droplet-ip', required=True)
+@click.pass_context
+def mark_collected(ctx: click.Context, taxon_id: str, droplet_ip: str) -> None:
+    """
+    Mark a droplet as having had its data collected.
+    """
+    _add_to_queue(command=f"mark-collected {taxon_id} {droplet_ip}", ctx=ctx)
+    logger.info(f"Registered command 'mark-collected {taxon_id} {droplet_ip}' in command queue.")
+
+
+def _mark_collected(ctx: click.Context, taxon_id: str, droplet_ip: str) -> None:
+    csv_file = os.path.join(ctx.obj['DATA_DIR'], Route.CSV.value)
+    data = load_csv(csv_file=csv_file)
+    row = data[data.taxon_id == taxon_id].iloc[0]
+    row = mark_data_collected(row=row, droplet_ip=droplet_ip, context=ctx.obj)
+    data.loc[data.taxon_id == row.taxon_id] = row.array
+    data.to_csv(os.path.join(ctx.obj['DATA_DIR'], Route.CSV.value), index=False)
 
 
 @taxon_tracker.command()
@@ -244,19 +278,18 @@ def status(ctx: click.Context, verbosity: int) -> None:
     def detail(key: str) -> str:
         ids = data[(data.last_run_status == key)].taxon_id
         if len(ids):
-            print(f"\t{', '.join(ids)}")
+            print(f"taxon_ids: {', '.join(ids)}")
 
     data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], Route.CSV.value))
 
     # Summarise the current status of trackers
     print(f"Taxon tracking status:")
     for s in RunStatus:
-        logger.debug(s)
         summary(s.value)
         if s == RunStatus.IN_PROGRESS:
             if verbosity == 1:
                 for stage in Stage:
-                    print(f"{stage_names[stage]}: {data[(data.stage == stage)].shape[0]}")
+                    print(f"{STAGE_NAMES[stage]}: {data[(data.stage == stage)].shape[0]}")
         if verbosity > 1 or (verbosity > 0 and s > RunStatus.COMPLETE_WITH_WARNING):
             detail(s.value)
 
@@ -264,7 +297,7 @@ def status(ctx: click.Context, verbosity: int) -> None:
     if verbosity > 0:
         ids = data[(data.needs_attention == 'True')].taxon_id
         if len(ids):
-            print(f"\t{', '.join(ids)}")
+            print(f"taxon_ids: t{', '.join(ids)}")
 
 
 def process_queued_queries(ctx: click.Context) -> None:
@@ -292,6 +325,9 @@ def process_queued_queries(ctx: click.Context) -> None:
             if command == "update-droplet-status":
                 t, d, s = args.split(" ")
                 _update_droplet_status(ctx=ctx, taxon_id=t, droplet_ip=d, new_status=s)
+            if command == "mark-collected":
+                t, d = args.split(" ")
+                _mark_collected(ctx=ctx, taxon_id=t, droplet_ip=d)
             os.remove(os.path.join(d, file))
         except AttributeError:
             continue
@@ -302,7 +338,8 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
     Run the next job in the queue and return the amount of time to sleep after completing.
     """
     # Find the next job
-    data = load_csv(csv_file=os.path.join(ctx.obj['DATA_DIR'], Route.CSV.value))
+    csv_file = os.path.join(ctx.obj['DATA_DIR'], Route.CSV.value)
+    data = load_csv(csv_file=csv_file)
 
     candidates = data.loc[(data.priority > 0)]
     if candidates.shape[0] == 0:
@@ -346,7 +383,7 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
             Priority.STOPPED.value
         ]
 
-    data.to_csv(os.path.join(ctx.obj['DATA_DIR'], Route.CSV.value), index=False)
+    data.to_csv(csv_file, index=False)
     return 60.0  # TODO: This should be a setting or something. In real deploys it can be ~0.0
 
 
@@ -372,7 +409,7 @@ def heartbeat(
 def _heartbeat(
         ctx: click.Context,
         sleep_time: float = 1.0,
-        max_sleep: float = 3600.0,
+        max_sleep: float = 60.0,
         stop: bool = True
 ) -> None:
     sleep_s = sleep_time

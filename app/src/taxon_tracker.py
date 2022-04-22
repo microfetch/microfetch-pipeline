@@ -166,7 +166,7 @@ def init(ctx: click.Context) -> None:
 
 
 def _add_to_queue(command: str, ctx: click.Context) -> None:
-    Path(os.path.join(ctx.obj["DATA_DIR"], f".queue/{command}")).touch(exist_ok=True)
+    Path(os.path.join(ctx.obj["DATA_DIR"], Route.queue_dir, command)).touch(exist_ok=True)
 
 
 @taxon_tracker.command()
@@ -289,6 +289,9 @@ def process_queued_queries(ctx: click.Context) -> None:
                 args = args.lower()
             if command == "add":
                 _add(ctx=ctx, taxon_id=args)
+            if command == "update-droplet-status":
+                t, d, s = args.split(" ")
+                _update_droplet_status(ctx=ctx, taxon_id=t, droplet_ip=d, new_status=s)
             os.remove(os.path.join(d, file))
         except AttributeError:
             continue

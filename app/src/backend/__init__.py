@@ -81,12 +81,14 @@ SETTINGS = {
 }
 
 
-def get_droplets_available(root_dir: str) -> bool:
+def get_droplets_available(whitelist: list, root_dir: str) -> bool:
     d = os.path.join(root_dir, Route.ACCESSION_DIR.value)
     for f in os.listdir(d):
-        df = pandas.read_csv(os.path.join(d, f))
-        if 'status' in df.columns:
-            return False
+        base, ext = os.path.splitext(f)
+        if base in whitelist:
+            df = pandas.read_csv(os.path.join(d, f))
+            if 'status' in df.columns:
+                return False
     return True
 
 

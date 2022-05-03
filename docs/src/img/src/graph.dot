@@ -1,0 +1,31 @@
+digraph {
+	splines=line;
+
+	subgraph cluster_0 {
+		label="ENA monitor";
+		"add taxon_id"; "fetch accession numbers";
+		"filter accession numbers";
+		"create droplet farm";
+		"mark data ready";
+		"mark data collected";
+	}
+
+	subgraph cluster_1 {
+		label="Digital Ocean droplet";
+		"process accession number";
+	}
+
+	subgraph cluster_2 {
+		label="BDI servers";
+		"fetch data";
+	}
+
+	"add taxon_id" -> "fetch accession numbers";
+	"fetch accession numbers" -> "filter accession numbers";
+	"filter accession numbers" -> "create droplet farm";
+	"create droplet farm" -> "process accession number";
+	"process accession number" ->	"mark data ready";
+	"mark data ready" -> "fetch data";
+	"fetch data" -> "mark data collected";
+	"mark data collected" -> "fetch accession numbers";
+}

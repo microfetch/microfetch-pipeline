@@ -26,7 +26,8 @@ class Priority(IntEnum):
     """
     Higher priorities have higher numbers
     """
-    STOPPED = 0
+    STOPPED = -1
+    PAUSED = 0
     VERY_LOW = 1
     LOW = 2
     MEDIUM = 3
@@ -57,7 +58,7 @@ class Stage(IntEnum):
     FETCH_ACCESSION_CSV = 2
     FILTER_ACCESSION_CSV = 3
     CREATE_DROPLET_FARM = 4
-    AWAIT_DATA_COLLECTION = 5
+    AWAIT_DATA_COLLECTION = 0  # We pause here because we want to keep doing other stuff while awaiting droplets
 
 
 class Setting(Enum):
@@ -78,6 +79,15 @@ STAGE_NAMES = {
 SETTINGS = {
     Setting.DROPLET_COUNT: 2
 }
+
+
+def get_droplets_available(root_dir: str) -> bool:
+    d = os.path.join(root_dir, Route.ACCESSION_DIR.value)
+    for f in os.listdir(d):
+        df = pandas.read_csv(os.path.join(d, f))
+        if 'status' in df.columns:
+            return False
+    return True
 
 
 def get_accession_csv_path(taxon_id: str, root_dir: str) -> str:

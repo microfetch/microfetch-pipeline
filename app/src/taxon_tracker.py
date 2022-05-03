@@ -11,6 +11,7 @@ from typing import Union
 from time import sleep
 
 from backend import \
+    get_droplets_available, \
     fetch_accession_csv, \
     filter_accession_csv, \
     create_droplet_farm, \
@@ -344,6 +345,13 @@ def do_next_action(ctx: click.Context, log_to_console: bool = True) -> float:
     candidates = data.loc[(data.priority > 0)]
     if candidates.shape[0] == 0:
         raise RuntimeWarning(f"There are no taxon ids that require processing.")
+
+    # Don't try to create droplet clusters if they are already in use. We have a budget!
+    if not get_droplets_available(ctx.obj['DATA_DIR']):
+        candidates = candidates.loc[candidates.stage != Stage.CREATE_DROPLET_FARM.value]
+        if candidates.shape[0] == 0:
+            logger.info(f"All taxon ids awaiting Digital Ocean droplet availability.")
+            return 1.0  # TODO: put as a setting?
 
     candidates = candidates.sort_values(by=['priority'], ascending=False, na_position='last')
     row = candidates.iloc[0]

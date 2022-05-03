@@ -78,7 +78,9 @@ class _RequestHandler(BaseHTTPRequestHandler):
 
         if message:
             try:
-                request_command = f"update-droplet-status {message['taxon_id']} {message['droplet_ip']} {message['status']}"
+                request_command = (
+                    f"update-droplet-status {message['taxon_id']} {message['droplet_ip']} {message['status']}"
+                )
                 logger.info(f"Request: {request_command}")
                 Path(os.path.join(queue_dir, request_command)).touch(exist_ok=True)
 

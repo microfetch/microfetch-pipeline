@@ -1,7 +1,9 @@
+# App
+pandas==1.4.2
+psycopg2-binary==2.9.3
+# Backend microfetch stuff
 retry==0.9.2
-click==8.1.2
 requests==2.27.1
 ena_utils==0.2.1
-pandas==1.4.2
 # extract_experiment_data
 # extract_project_data

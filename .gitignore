@@ -5,3 +5,8 @@
 app/src/backend/__pycache__/
 
 docs/book
+
+*.env
+*.env.*
+
+data/

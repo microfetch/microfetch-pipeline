@@ -5,6 +5,7 @@ import os
 import re
 import click
 import pandas
+import psycopg2
 
 from pathlib import Path
 from typing import Union
@@ -44,6 +45,29 @@ dtypes = {
 }
 headers = dtypes.keys()
 data_directory = os.path.join(os.path.dirname(__file__), '..', 'data')
+
+DB = None
+
+
+def get_connection() -> object:
+    """
+    Get the database connection, opening it if necessary.
+    """
+    global DB
+    db_status = 0
+    try:
+        db_status = DB.status
+    except AttributeError:
+        pass
+
+    if not db_status:
+        DB = psycopg2.connect(
+            host="db",  # set in docker-compose.yml
+            database=os.environ.get('POSTGRES_DB'),
+            user=os.environ.get('POSTGRES_USER'),
+            password=os.environ.get('POSTGRES_PASSWORD')
+        )
+    return DB
 
 
 def load_csv(csv_file: str) -> Union[pandas.DataFrame, bool]:

@@ -1,4 +1,4 @@
-from django.http import HttpResponse
+from django.http import HttpRequest, HttpResponse
 from django.urls import reverse
 from django.shortcuts import render, redirect
 import logging
@@ -28,7 +28,7 @@ def parse_log_entry(log_entry: StatusLog) -> str:
     return f"{log_entry.create_datetime} {log_entry.logger_name} ({level}):\t{log_entry.msg}"
 
 
-def index(request):
+def index(request: HttpRequest) -> HttpResponse:
     log_entries = StatusLog.objects.all().order_by('-create_datetime')  # TODO: limit to one page of logs
     log = [parse_log_entry(x) for x in log_entries if x.level >= logging.INFO]
 
@@ -49,13 +49,15 @@ def add_taxon_id(taxon_id: int) -> None:
         logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")
 
 
-def post(request):
-    if 'taxon_id' in request.POST.keys():
-        add_taxon_id(request.POST['taxon_id'])
+def post(request: HttpRequest) -> HttpResponse:
+    if 'taxon_ids' in request.POST.keys():
+        taxon_ids = request.POST['taxon_ids'].split(',')
+        for taxon_id in taxon_ids:
+            add_taxon_id(int(taxon_id))
     return redirect(reverse("index"))
 
 
-def callback(request):
+def callback(request: HttpRequest) -> HttpResponse:
     logger.info(f"Request {request}")
     try:
         message = request.POST

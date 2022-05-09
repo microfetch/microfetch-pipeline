@@ -55,4 +55,3 @@ def callback(request):
         except Exception as e:
             logger.error(f"Error processing valid request -- {e}")
             return HttpResponse(e, status=500)
-

@@ -11,5 +11,4 @@ COPY --chown=appuser:appuser . .
 USER appuser
 
 # Set up the app environment
-ENTRYPOINT python src/taxon_tracker.py -v --data-directory /app/data init && \
-		python src/taxon_tracker.py -v --data-directory /app/data heartbeat
+ENTRYPOINT python taxon_tracker.py

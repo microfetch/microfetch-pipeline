@@ -3,6 +3,7 @@
 /app/data/
 
 app/src/backend/__pycache__/
+app_old/
 
 docs/book
 

@@ -5,7 +5,7 @@ LENGTH_ACCESSION = 40
 
 class taxons(models.Model):
     taxon_id = models.PositiveBigIntegerField(primary_key=True)
-    last_updated = models.DateTimeField(auto_now=True)
+    last_updated = models.DateTimeField(null=True)
     time_added = models.DateTimeField(auto_now_add=True)
 
 
@@ -14,7 +14,7 @@ class accession_numbers(models.Model):
     accession_number = models.CharField(primary_key=True, max_length=LENGTH_ACCESSION)
     passed_filter = models.BooleanField(null=True)
     time_added = models.DateTimeField(auto_now_add=True)
-    time_fetched = models.DateTimeField()
+    time_fetched = models.DateTimeField(null=True)
 
 
 class record_details(models.Model):

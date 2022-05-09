@@ -1,6 +1,10 @@
 from django.http import HttpResponse
+from django.urls import reverse
+from django.shortcuts import render, redirect
 import logging
 import re
+from django_db_logger.models import StatusLog
+from .models import taxons, accession_numbers, record_details
 
 logger = logging.getLogger(__file__)
 
@@ -9,8 +13,46 @@ class ValidationError(BaseException):
     pass
 
 
+LOG_LEVEL_NAMES={
+    logging.NOTSET: 'NotSet',
+    logging.DEBUG: 'Debug',
+    logging.INFO: 'Info',
+    logging.WARNING: 'Warning',
+    logging.ERROR: 'Error',
+    logging.FATAL: 'Fatal'
+}
+
+
+def parse_log_entry(log_entry: StatusLog) -> str:
+    level = LOG_LEVEL_NAMES[log_entry.level] if log_entry.level in LOG_LEVEL_NAMES.keys() else 'UNKNOWN'
+    return f"{log_entry.create_datetime} {log_entry.logger_name} ({level}):\t{log_entry.msg}"
+
+
 def index(request):
-    return HttpResponse("Welcome to the ENA Monitor interface.")
+    log_entries = StatusLog.objects.all().order_by('-create_datetime')  # TODO: limit to one page of logs
+    log = [parse_log_entry(x) for x in log_entries if x.level >= logging.INFO]
+
+    return render(
+        request,
+        "webserver/home.html",
+        {
+            'messages': log
+        }
+    )
+
+
+def add_taxon_id(taxon_id: int) -> None:
+    try:
+        taxons.objects.update_or_create(taxon_id=int(taxon_id))
+        logger.info(f"Added taxon id {taxon_id}")
+    except ValueError:
+        logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")
+
+
+def post(request):
+    if 'taxon_id' in request.POST.keys():
+        add_taxon_id(request.POST['taxon_id'])
+    return redirect(reverse("index"))
 
 
 def callback(request):

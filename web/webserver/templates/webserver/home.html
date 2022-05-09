@@ -1,0 +1,21 @@
+<section class="control-panel">
+    <header>
+        <h1>microfetch-pipeline management console</h1>
+    </header>
+    <div class="messages">
+        <ul>
+            {% for msg in messages %}
+            <li>{{msg}}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    <div class="actions">
+        <div class="add-taxon-id">
+            <form action="/post/" method="post">
+                {% csrf_token %}
+                <label for="taxon_id">Add taxon id</label>
+                <input type="number" id="taxon_id" name="taxon_id"/>
+            </form>
+        </div>
+    </div>
+</section>

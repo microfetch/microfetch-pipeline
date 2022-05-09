@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_db_logger',
     'webserver'
 ]
 
@@ -135,14 +136,28 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '%(levelname)s %(asctime)s %(module)s %(process)d %(thread)d %(message)s'
+        },
+        'simple': {
+            'format': '%(asctime)s %(levelname)s:\t%(message)s'
+        },
+    },
     'handlers': {
         'console': {
             'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+        'db_log': {  # database logger for web interface users
+            'level': 'INFO',
+            'class': 'django_db_logger.db_log_handler.DatabaseLogHandler',
+            'formatter': 'simple'
         },
     },
     'root': {
-        'handlers': ['console'],
-        'level': os.getenv('DJANGO_LOG_LEVEL', 'WARNING'),
+        'handlers': ['console', 'db_log'],
+        'level': os.getenv('DJANGO_LOG_LEVEL', 'WARNING')
     },
     'loggers': {
         'django': {

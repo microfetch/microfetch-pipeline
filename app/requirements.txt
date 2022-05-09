@@ -8,3 +8,9 @@ requests==2.27.1
 ena_utils==0.2.1
 # extract_experiment_data
 # extract_project_data
+
+
+# web requirements -- dev only. TODO: remove for production
+Django==4.0.4
+psycopg2-binary==2.9.3
+django-db-logger==0.1.12

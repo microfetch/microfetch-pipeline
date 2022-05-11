@@ -244,13 +244,15 @@ def filter_accession_numbers() -> None:
     new_accessions = records[[accession_number_fk, passed_filter, f"{passed_filter}_failed"]]
     values = ','.join([str(tuple(x)) for x in new_accessions.itertuples(index=False)])
     get_connection().execute((
+        f"WITH t(an, fltr, fail) AS "
+        f"(VALUES "
+        f"  {values}"
+        f") "
         f"UPDATE {Tables.ACCESSION.value} SET "
         f"{accession_number} = t.an, "
         f"{passed_filter} = t.fltr, "
         f"{filter_failed} = t.fail "
-        f"FROM (VALUES ("
-        f"  {values}"
-        f")) as t(an, fltr, fail) "
+        f"FROM t "
         f"WHERE {Tables.ACCESSION.value}.{accession_number} = t.an"
     ))
 

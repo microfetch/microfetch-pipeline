@@ -13,7 +13,7 @@ services:
 
   web:
     build: ./web
-    command: python manage.py runserver 0.0.0.0:8000
+    command: ["./init.sh", "db", "--", "python", "manage.py", "runserver", "0.0.0.0:8000"]
     volumes:
       - ./web:/web
     ports:
@@ -27,12 +27,14 @@ services:
 
   app:
     build: ./app
+    entrypoint: ["./init.sh", "web", "8000", "--", "python", "taxon_tracker.py"]
     volumes:
       - ./app:/app
     env_file:
+      - .env.taxon_tracker
       - .env.postgres
     depends_on:
-      - db
+      - web
 
   # Documentation
   mdbook:

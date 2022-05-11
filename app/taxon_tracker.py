@@ -2,13 +2,24 @@ import logging
 import os
 import pandas
 import datetime
-
+import math
 import pytz
+
 from sqlalchemy import create_engine
 from time import sleep
 from enum import Enum
+from requests import request
 
 from backend import fetch_accession_numbers
+
+
+class Settings(Enum):
+    ENA_REQUEST_LIMIT = 'ENA_REQUEST_LIMIT'
+
+
+SETTINGS = {
+    Settings.ENA_REQUEST_LIMIT: int(os.environ.get(Settings.ENA_REQUEST_LIMIT.value, '10000'))
+}
 
 
 # Adapted from https://stackoverflow.com/a/67305494
@@ -60,6 +71,7 @@ class AccessionCols(Enum):
     TAXON_ID = 'taxon_id_id'  # extra _id courtesy of Django
     ACCESSION_NUMBER = 'accession_number'
     PASSED_FILTER = 'passed_filter'
+    FILTER_FAILED = 'filter_failed'
     TIME_ADDED = 'time_added'
     TIME_FETCHED = 'time_fetched'
 
@@ -186,6 +198,7 @@ def filter_accession_numbers() -> None:
     accession_number = COLUMNS[Tables.ACCESSION].ACCESSION_NUMBER.value
     accession_number_fk = COLUMNS[Tables.RECORD_DETAILS].ACCESSION_NUMBER.value
     passed_filter = COLUMNS[Tables.ACCESSION].PASSED_FILTER.value
+    filter_failed = COLUMNS[Tables.ACCESSION].FILTER_FAILED.value
     accessions = pandas.read_sql(
         sql=(
             f"SELECT {accession_number}, {passed_filter} FROM {Tables.ACCESSION.value} WHERE "
@@ -209,14 +222,7 @@ def filter_accession_numbers() -> None:
         ),
         con=get_connection()
     )
-    records = query_ENA_detail(missing[accession_number])
-    records.to_sql(
-        name=Tables.RECORD_DETAILS.value,
-        con=get_connection(),
-        if_exists='append',
-        index=False,
-        method='multi'
-    )
+    fetch_ENA_records(missing[accession_number])
 
     # Check records against filters
     records = pandas.read_sql(
@@ -230,27 +236,69 @@ def filter_accession_numbers() -> None:
     logger.debug('Records:')
     logger.debug(records)
 
-    records[passed_filter] = True
+    records[passed_filter] = True  # TODO: use actual filter script
+    records[f"{passed_filter}_failed"] = ""
 
     # Save results
-    new_accessions = records[[accession_number_fk, passed_filter]]
-    new_accessions.to_sql(
-        name=Tables.ACCESSION.value,
-        con=get_connection(),
-        if_exists='append',
-        index=False,
-        method='multi'
-    )
+    # rename accession number
+    new_accessions = records[[accession_number_fk, passed_filter, f"{passed_filter}_failed"]]
+    values = ','.join([str(tuple(x)) for x in new_accessions.itertuples(index=False)])
+    get_connection().execute((
+        f"UPDATE {Tables.ACCESSION.value} SET "
+        f"{accession_number} = t.an, "
+        f"{passed_filter} = t.fltr, "
+        f"{filter_failed} = t.fail "
+        f"FROM (VALUES ("
+        f"  {values}"
+        f")) as t(an, fltr, fail) "
+        f"WHERE {Tables.ACCESSION.value}.{accession_number} = t.an"
+    ))
 
     if len(records) > 0:
         logger.info(f"{len(records.loc[records[passed_filter]])}/{len(records)} new records acceptable for assembly.")
 
 
-def query_ENA_detail(accession_numbers: list) -> pandas.DataFrame:
+def fetch_ENA_records(accession_numbers: list) -> None:
     logger.debug(f"Fetching {len(accession_numbers)} new ENA record details.")
-    df = pandas.DataFrame()
-    logger.debug(f"Fetched {len(df)}/{len(accession_numbers)} record details.")
-    return df
+    limit = SETTINGS[Settings.ENA_REQUEST_LIMIT]
+    successes = []
+    for i in range(math.ceil(len(accession_numbers) / limit)):
+        ans = accession_numbers[i * limit:(i + 1) * limit]
+        result = request(
+            'GET',
+            (
+                f"https://www.ebi.ac.uk/ena/portal/api/search?"
+                f"includeAccessions={','.join(ans)}"
+                f"&result=sample&format=json&limit={limit}&fields=all"
+            )
+        )
+        if result.status_code != 200:
+            logger.warning((
+                f"Error retrieving ENA record details. They will be retrieved later. API Error: {result.text}"
+            ))
+        else:
+            try:
+                records = pandas.read_json(result.text)
+                # Tidy up a couple of columns
+                records[COLUMNS[Tables.RECORD_DETAILS].ACCESSION_NUMBER.value] = records[['accession']]
+                records[COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
+
+                records.to_sql(
+                    name=Tables.RECORD_DETAILS.value,
+                    con=get_connection(),
+                    if_exists='append',
+                    index=False,
+                    method='multi'
+                )
+
+                successes = [*successes, *ans]
+
+            except BaseException as e:
+                logger.error((
+                    f"Error saving ENA record details. They will be retrieved later. Error: {e}"
+                ))
+
+    logger.debug(f"Fetched {len(successes)}/{len(accession_numbers)} record details.")
 
 
 if __name__ == '__main__':

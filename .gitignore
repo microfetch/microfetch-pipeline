@@ -3,6 +3,7 @@
 /app/data/
 
 app/src/backend/__pycache__/
+app/backend/__pycache__/
 app_old/
 
 docs/book
@@ -11,3 +12,6 @@ docs/book
 *.env.*
 
 data/
+
+web/webserver/migrations/*
+!web/webserver/migrations/__init__.py

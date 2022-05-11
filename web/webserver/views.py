@@ -99,3 +99,7 @@ def callback(request: HttpRequest) -> HttpResponse:
         except Exception as e:
             logger.error(f"Error processing valid request -- {e}")
             return HttpResponse(e, status=500)
+
+
+def healthcheck(request):
+    return HttpResponse()

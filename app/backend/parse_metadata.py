@@ -1,5 +1,3 @@
-import logging
-
 import pandas
 import os
 import pandas as pd
@@ -31,19 +29,21 @@ class Filter:
         return df
 
 
-class FilterNA:
+class FilterNA(Filter):
     def __init__(self, name: str, field: str):
         def lambda_fun(df: pandas.DataFrame) -> bool:
             return df[field].notna()
         super(FilterNA, self).__init__(name=name, lambda_fun=lambda_fun)
 
 
-class FilterMatch:
+class FilterMatch(Filter):
     def __init__(self, name: str, field: str, value: any):
         if type(value) is not list:
             value = [value]
+
         def lambda_fun(df: pandas.DataFrame) -> bool:
             return df[field] in value
+
         super(FilterMatch, self).__init__(name=name, lambda_fun=lambda_fun)
 
 
@@ -59,7 +59,7 @@ def f_genome_size(df: pandas.DataFrame) -> bool:
 
 def f_location_or_date(df: pandas.DataFrame) -> bool:
     # 1. Filter out entries with no lat nor lon 17,655/116,246
-    has_lat_lon_df = df[qc_df["lon"].notna()&df["lat"].notna()]
+    has_lat_lon_df = df[df["lon"].notna()&df["lat"].notna()]
     # 2. Select entries with no lat or lon 98,591/116,246
     no_lat_lon_df = df[df["lon"].isna()|df["lat"].isna()]
     # 3. Select entries without lat or lon but with country 93,058/98,591
@@ -108,7 +108,7 @@ FILTERS = [
 
 def apply_filters(records: pandas.DataFrame, col_name: str = 'passed_filter') -> pandas.DataFrame:
     # Drop non-WGS experiments
-    records.passed_filter = False
+    records[col_name] = False
     okay = records
     for f in FILTERS:
         try:

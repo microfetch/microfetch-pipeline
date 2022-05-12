@@ -60,8 +60,8 @@ DB = None
 # Columns and tables are defined in web/webserver/models.py
 class Tables(Enum):
     TAXON = 'webserver_taxons'
-    ACCESSION = 'webserver_accession_numbers'
-    RECORD_DETAILS = 'webserver_record_details'
+    ACCESSION = 'webserver_accessionnumbers'
+    RECORD_DETAILS = 'webserver_recorddetails'
     LOGGING = 'django_db_logger_statuslog'
 
 

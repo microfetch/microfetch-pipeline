@@ -21,7 +21,6 @@ services:
     env_file:
       - .env.postgres
       - .env.django
-      - .env.digital_ocean
     depends_on:
       - db
 
@@ -32,6 +31,7 @@ services:
       - ./app:/app
     env_file:
       - .env.taxon_tracker
+      - .env.digital_ocean
       - .env.postgres
     depends_on:
       - web

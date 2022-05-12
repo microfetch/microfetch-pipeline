@@ -5,22 +5,22 @@ LENGTH_MEDIUM = 256
 LENGTH_LONG = 1024
 
 
-class taxons(models.Model):
+class Taxons(models.Model):
     taxon_id = models.PositiveBigIntegerField(primary_key=True)
     last_updated = models.DateTimeField(null=True)
     time_added = models.DateTimeField(auto_now_add=True)
 
 
-class accession_numbers(models.Model):
-    taxon_id = models.ForeignKey("taxons", on_delete=models.DO_NOTHING)
+class AccessionNumbers(models.Model):
+    taxon_id = models.ForeignKey("Taxons", on_delete=models.DO_NOTHING)
     accession_number = models.CharField(primary_key=True, max_length=LENGTH_ACCESSION)
     passed_filter = models.BooleanField(null=True)
     filter_failed = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     time_added = models.DateTimeField(auto_now_add=True)
 
 
-class record_details(models.Model):
-    accession_number = models.ForeignKey("accession_numbers", on_delete=models.DO_NOTHING)
+class RecordDetails(models.Model):
+    accession_number = models.ForeignKey("AccessionNumbers", on_delete=models.DO_NOTHING)
     time_fetched = models.DateTimeField(auto_now_add=True)
     # Fields as retrieved from ENA database
     accession = models.CharField(max_length=LENGTH_ACCESSION, null=True)

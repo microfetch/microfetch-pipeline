@@ -4,7 +4,7 @@ from django.shortcuts import render, redirect
 import logging
 import re
 from django_db_logger.models import StatusLog
-from .models import taxons, accession_numbers, record_details
+from .models import Taxons, AccessionNumbers, RecordDetails
 
 logger = logging.getLogger(__file__)
 
@@ -43,7 +43,7 @@ def index(request: HttpRequest) -> HttpResponse:
 
 def add_taxon_id(taxon_id: int) -> None:
     try:
-        taxons.objects.update_or_create(taxon_id=int(taxon_id))
+        Taxons.objects.update_or_create(taxon_id=int(taxon_id))
         logger.info(f"Added taxon id {taxon_id}")
     except ValueError:
         logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")

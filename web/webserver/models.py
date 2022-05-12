@@ -17,7 +17,6 @@ class accession_numbers(models.Model):
     passed_filter = models.BooleanField(null=True)
     filter_failed = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     time_added = models.DateTimeField(auto_now_add=True)
-    time_fetched = models.DateTimeField(null=True)
 
 
 class record_details(models.Model):

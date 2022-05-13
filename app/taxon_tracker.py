@@ -59,6 +59,7 @@ DB = None
 
 
 # Columns and tables are defined in web/webserver/models.py
+# The lists below are not exhaustive, they reflect items likely to be useful in the code.
 class Tables(Enum):
     TAXON = 'webserver_taxons'
     ACCESSION = 'webserver_accessionnumbers'
@@ -74,14 +75,17 @@ class TaxonCols(Enum):
 
 class AccessionCols(Enum):
     TAXON_ID = 'taxon_id_id'  # extra _id courtesy of Django
-    ACCESSION_NUMBER = 'accession_number'
+    ACCESSION = 'accession'
+    EXPERIMENT_ACCESSION = 'experiment_accession'
+    RUN_ACCESSION = 'run_accession'
+    SAMPLE_ACCESSION = 'sample_accession'
     PASSED_FILTER = 'passed_filter'
     FILTER_FAILED = 'filter_failed'
     TIME_ADDED = 'time_added'
 
 
 class RecordCols(Enum):
-    ACCESSION_NUMBER = 'accession_number_id'
+    EXPERIMENT_ACCESSION = 'experiment_accession_id'
     TIME_FETCHED = 'time_fetched'
 
 
@@ -126,7 +130,8 @@ def get_taxons_to_check() -> pandas.DataFrame:
                 f"SELECT {taxon_id} FROM {Tables.TAXON.value} WHERE "
                 f"{last_updated} is null OR "
                 # Updated over a week ago
-                f"date_part('days', now() - {last_updated}) >= 7"  # TODO: soft-code time diff later
+                f"date_part('minutes', now() - {last_updated}) >= 5"
+                # f"date_part('days', now() - {last_updated}) >= 7"  # TODO: soft-code time diff later
             )),
             con=conn
         )
@@ -157,18 +162,18 @@ def update_records(taxon_id: int) -> None:
     all_accessions = query_ENA(taxon_id)
 
     # Strip out existing accession numbers
-    accession_number = COLUMNS[Tables.ACCESSION].ACCESSION_NUMBER.value
+    experiment_accession = COLUMNS[Tables.ACCESSION].EXPERIMENT_ACCESSION.value
     t_id = COLUMNS[Tables.ACCESSION].TAXON_ID.value
     with get_engine().connect() as conn:
         local_records = pandas.read_sql(
             sql=sqlalchemy.text((
-                f"SELECT {accession_number} FROM {Tables.ACCESSION.value} WHERE "
+                f"SELECT {experiment_accession} FROM {Tables.ACCESSION.value} WHERE "
                 f"{t_id} = {taxon_id}"
             )),
             con=conn
         )
 
-    new_records = all_accessions.loc[~(all_accessions[accession_number].isin(local_records[accession_number]))]
+    new_records = all_accessions.loc[~(all_accessions[experiment_accession].isin(local_records[experiment_accession]))]
 
     if len(new_records) == 0:
         logger.info(f"All ENA {len(all_accessions)} records exist locally.")
@@ -181,6 +186,10 @@ def update_records(taxon_id: int) -> None:
 
         # Add new records to Accessions table
         new_records[t_id] = [taxon_id for _ in range(len(new_records))]
+        # Update column name because django appends _id to foreign keys
+        new_records = new_records.rename(columns={
+            COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value: experiment_accession
+        })
         # timezone (tz) should match web/settings/settings.py
         new_records[COLUMNS[Tables.ACCESSION].TIME_ADDED.value] = \
             [datetime.datetime.now(tz=pytz.UTC) for _ in range(len(new_records))]
@@ -208,22 +217,21 @@ def query_ENA(taxon_id: int) -> pandas.DataFrame:
         print_result=False
     )
     df = pandas.DataFrame(accession_numbers)
-    df[COLUMNS[Tables.ACCESSION].ACCESSION_NUMBER.value] = df[['experiment_accession']]  # rename from backend
-    return df[[COLUMNS[Tables.ACCESSION].ACCESSION_NUMBER.value]]
+    return df
 
 
 def filter_accession_numbers() -> None:
     """
     Fetch records for any accession numbers without a passed_filter decision and apply filters.
     """
-    accession_number = COLUMNS[Tables.ACCESSION].ACCESSION_NUMBER.value
-    accession_number_fk = COLUMNS[Tables.RECORD_DETAILS].ACCESSION_NUMBER.value
+    experiment_accession = COLUMNS[Tables.ACCESSION].EXPERIMENT_ACCESSION.value
+    experiment_accession_fk = COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value
     passed_filter = COLUMNS[Tables.ACCESSION].PASSED_FILTER.value
     filter_failed = COLUMNS[Tables.ACCESSION].FILTER_FAILED.value
     with get_engine().connect() as conn:
         accessions = pandas.read_sql(
             sql=sqlalchemy.text((
-                f"SELECT {accession_number}, {passed_filter} FROM {Tables.ACCESSION.value} WHERE "
+                f"SELECT {experiment_accession}, {passed_filter} FROM {Tables.ACCESSION.value} WHERE "
                 f"{passed_filter} is null"
             )),
             con=conn
@@ -241,23 +249,23 @@ def filter_accession_numbers() -> None:
     with get_engine().connect() as conn:
         missing = pandas.read_sql(
             sql=sqlalchemy.text((
-                f"SELECT {accession_number} FROM {Tables.ACCESSION.value} WHERE "
+                f"SELECT {experiment_accession} FROM {Tables.ACCESSION.value} WHERE "
                 f"{passed_filter} is null AND "
-                f"{accession_number} not in (SELECT {accession_number_fk} FROM {Tables.RECORD_DETAILS.value})"
+                f"{experiment_accession} not in (SELECT {experiment_accession_fk} FROM {Tables.RECORD_DETAILS.value})"
             )),
             con=conn
         )
 
     if len(missing):
-        fetch_ENA_records(missing[accession_number])
+        fetch_ENA_records(missing[experiment_accession])
 
     # Check records against filters
     with get_engine().connect() as conn:
         records = pandas.read_sql(
             sql=sqlalchemy.text((
                 f"SELECT * FROM {Tables.RECORD_DETAILS.value} WHERE "
-                f"{accession_number_fk} in "
-                f"{tuple(accessions[accession_number])}"
+                f"{experiment_accession_fk} in "
+                f"{tuple(accessions[experiment_accession])}"
             )),
             con=conn
         )
@@ -266,13 +274,13 @@ def filter_accession_numbers() -> None:
 
     # Save results
     # rename accession number
-    new_accessions = records[[accession_number_fk, passed_filter, filter_failed]]
+    new_accessions = records[[experiment_accession_fk, passed_filter, filter_failed]]
     with Session(get_engine()) as session:
         session.execute(
             sqlalchemy.text((
                 f"UPDATE {Tables.ACCESSION.value} "
-                f"SET {accession_number}=:an, {passed_filter}=:fltr, {filter_failed}=:fail "
-                f"WHERE {accession_number}=:an"
+                f"SET {experiment_accession}=:an, {passed_filter}=:fltr, {filter_failed}=:fail "
+                f"WHERE {experiment_accession}=:an"
             )),
             [{'an': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_accessions.itertuples(index=False)]
         )
@@ -307,7 +315,9 @@ def fetch_ENA_records(accession_numbers: list) -> None:
                     logger.warning(f"Empty result set retrieved.")
                     continue
                 # Tidy up a couple of columns
-                records[COLUMNS[Tables.RECORD_DETAILS].ACCESSION_NUMBER.value] = records[['experiment_accession']]
+                records = records.rename(columns={
+                    'experiment_accession': COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value
+                })
                 records[COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
                 with get_engine().connect() as conn:
                     records.to_sql(

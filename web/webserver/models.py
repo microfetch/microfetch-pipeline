@@ -13,17 +13,21 @@ class Taxons(models.Model):
 
 class AccessionNumbers(models.Model):
     taxon_id = models.ForeignKey("Taxons", on_delete=models.DO_NOTHING)
-    accession_number = models.CharField(primary_key=True, max_length=LENGTH_ACCESSION)
+    experiment_accession = models.CharField(primary_key=True, max_length=LENGTH_ACCESSION)
+    accession = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    run_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
+    sample_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
+    secondary_sample_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     passed_filter = models.BooleanField(null=True)
     filter_failed = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     time_added = models.DateTimeField(auto_now_add=True)
 
 
 class RecordDetails(models.Model):
-    accession_number = models.ForeignKey("AccessionNumbers", on_delete=models.DO_NOTHING)
+    experiment_accession = models.ForeignKey("AccessionNumbers", on_delete=models.DO_NOTHING)
     time_fetched = models.DateTimeField(auto_now_add=True)
     # Fields as retrieved from ENA database
-    accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
+    accession = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     altitude = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     assembly_quality = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     assembly_software = models.CharField(null=True, max_length=LENGTH_MEDIUM)
@@ -53,7 +57,6 @@ class RecordDetails(models.Model):
     environment_material = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     environmental_package = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     environmental_sample = models.CharField(null=True, max_length=LENGTH_MEDIUM)
-    experiment_accession = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     experiment_alias = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     experiment_title = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     experimental_factor = models.CharField(null=True, max_length=LENGTH_MEDIUM)

@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import numpy as np
 import pickle
-import mapbox
+# import mapbox
 import sys
 from html import unescape
 import logging
@@ -23,9 +23,14 @@ class Filter:
         self.name = name
         self._fun = lambda_fun
 
-    def do(self, df: pandas.DataFrame, col_name: str) -> pandas.DataFrame:
-        df[col_name] = self._fun(df)
-        df.loc[df[col_name] is not True, [f"{col_name}_fail"]] = self.name
+    def do(self, df: pandas.DataFrame, col_names: list) -> pandas.DataFrame:
+        """
+        Set two columns on df:
+        col_names[0] is set by applying the Filter's function to df
+        col_names[1] is set as the Filter's name if the filter is failed, otherwise to the empty string
+        """
+        df[col_names[0]] = self._fun(df)
+        df[col_names[1]] = np.where(df[col_names[0]], '', self.name)
         return df
 
 
@@ -42,7 +47,7 @@ class FilterMatch(Filter):
             value = [value]
 
         def lambda_fun(df: pandas.DataFrame) -> bool:
-            return df[field] in value
+            return df[field].isin(value)
 
         super(FilterMatch, self).__init__(name=name, lambda_fun=lambda_fun)
 
@@ -71,9 +76,9 @@ def f_location_or_date(df: pandas.DataFrame) -> bool:
 
     # 5. Go through 'country' values and find their geo coordinates if
     #    not in 'location' dictionary.
-    for i in has_country_df.country.unique():
-        if i not in locations:
-            locations[i] = mapbox.get_lat_lon(MABPOX_URL, unescape(i), MABPOX_KEY)
+    # for i in has_country_df.country.unique():
+    #     if i not in locations:
+    #         locations[i] = mapbox.get_lat_lon(MABPOX_URL, unescape(i), MABPOX_KEY)
 
     # 6. Save updated 'location' to pickle
     with open('locations.pkl', 'wb') as handle:
@@ -106,14 +111,27 @@ FILTERS = [
 ]
 
 
-def apply_filters(records: pandas.DataFrame, col_name: str = 'passed_filter') -> pandas.DataFrame:
+def apply_filters(
+        records: pandas.DataFrame,
+        col_name_passed: str = 'passed_filter',
+        col_name_failed: str = 'filter_failed'
+) -> pandas.DataFrame:
+    """
+    Apply all filters to a record set.
+    Will return a record set with col_name_passed and col_name_failed added.
+    col_name_passed will be True if all filters were passed, False otherwise.
+    col_name_failed will be the name of the first failed filter, or the empty string
+    """
     # Drop non-WGS experiments
-    records[col_name] = False
+    records[col_name_passed] = False
     okay = records
     for f in FILTERS:
         try:
-            okay = f.do(df=okay, col_name=col_name)
-            okay = okay.loc[okay[col_name] is True]
+            okay = f.do(df=okay, col_names=[col_name_passed, col_name_failed])
+            okay = okay.loc[okay[col_name_passed]]
+            if len(okay) == 0:
+                break
         except FilterImplementationException as e:
             logger.warning(f"Failed to implement filter {f.name}: {e}")
+
     return records

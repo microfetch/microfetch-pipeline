@@ -13,6 +13,7 @@ from enum import Enum
 from requests import request
 
 from backend import fetch_accession_numbers
+from backend import filters
 
 
 class Settings(Enum):
@@ -203,11 +204,11 @@ def query_ENA(taxon_id: int) -> pandas.DataFrame:
     logger.info(f"Fetching ENA accession numbers for taxon id {taxon_id}.")
     accession_numbers = fetch_accession_numbers.fetch_records_direct(
         taxon_id=str(taxon_id),
-        accession_type='run',
+        accession_type='experiment',
         print_result=False
     )
     df = pandas.DataFrame(accession_numbers)
-    df[COLUMNS[Tables.ACCESSION].ACCESSION_NUMBER.value] = df[['accession']]  # rename from backend
+    df[COLUMNS[Tables.ACCESSION].ACCESSION_NUMBER.value] = df[['experiment_accession']]  # rename from backend
     return df[[COLUMNS[Tables.ACCESSION].ACCESSION_NUMBER.value]]
 
 
@@ -261,12 +262,11 @@ def filter_accession_numbers() -> None:
             con=conn
         )
 
-    records[passed_filter] = True  # TODO: use actual filter script
-    records[f"{passed_filter}_failed"] = ""
+    filters.apply_filters(records=records, col_name_passed=passed_filter, col_name_failed=filter_failed)
 
     # Save results
     # rename accession number
-    new_accessions = records[[accession_number_fk, passed_filter, f"{passed_filter}_failed"]]
+    new_accessions = records[[accession_number_fk, passed_filter, filter_failed]]
     with Session(get_engine()) as session:
         session.execute(
             sqlalchemy.text((
@@ -285,17 +285,17 @@ def filter_accession_numbers() -> None:
 def fetch_ENA_records(accession_numbers: list) -> None:
     logger.info(f"Fetching {len(accession_numbers)} new ENA record details.")
     limit = SETTINGS[Settings.ENA_REQUEST_LIMIT]
+    response_limit = 0
     successes = []
     for i in range(math.ceil(len(accession_numbers) / limit)):
         ans = accession_numbers[i * limit:(i + 1) * limit]
-        result = request(
-            'GET',
-            (
-                f"https://www.ebi.ac.uk/ena/portal/api/search?"
-                f"includeAccessions={','.join(ans)}"
-                f"&result=sample&format=json&limit={limit}&fields=all"
-            )
+        url = (
+            f"https://www.ebi.ac.uk/ena/portal/api/search?"
+            f"includeAccessions={','.join(ans)}"
+            f"&result=read_experiment&format=json&limit={response_limit}&fields=all"
         )
+        logger.debug(url)
+        result = request('GET', url=url)
         if result.status_code != 200:
             logger.warning((
                 f"Error retrieving ENA record details. They will be retrieved later. API Error: {result.text}"
@@ -303,8 +303,11 @@ def fetch_ENA_records(accession_numbers: list) -> None:
         else:
             try:
                 records = pandas.read_json(result.text)
+                if len(records) == 0:
+                    logger.warning(f"Empty result set retrieved.")
+                    continue
                 # Tidy up a couple of columns
-                records[COLUMNS[Tables.RECORD_DETAILS].ACCESSION_NUMBER.value] = records[['accession']]
+                records[COLUMNS[Tables.RECORD_DETAILS].ACCESSION_NUMBER.value] = records[['experiment_accession']]
                 records[COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
                 with get_engine().connect() as conn:
                     records.to_sql(

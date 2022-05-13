@@ -1,8 +1,8 @@
 from django.db import models
 
 LENGTH_ACCESSION = 40
-LENGTH_MEDIUM = 256
-LENGTH_LONG = 1024
+LENGTH_MEDIUM = 1024#256
+LENGTH_LONG = 4096
 
 
 class Taxons(models.Model):
@@ -58,7 +58,7 @@ class RecordDetails(models.Model):
     environmental_package = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     environmental_sample = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     experiment_alias = models.CharField(null=True, max_length=LENGTH_MEDIUM)
-    experiment_title = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    experiment_title = models.CharField(null=True, max_length=LENGTH_LONG)
     experimental_factor = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     first_created = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     first_public = models.CharField(null=True, max_length=LENGTH_MEDIUM)
@@ -81,7 +81,7 @@ class RecordDetails(models.Model):
     last_updated = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     lat = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     lon = models.CharField(null=True, max_length=LENGTH_ACCESSION)
-    library_construction_protocol = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    library_construction_protocol = models.CharField(null=True, max_length=LENGTH_LONG)
     library_layout = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     library_name = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     library_selection = models.CharField(null=True, max_length=LENGTH_MEDIUM)
@@ -105,7 +105,7 @@ class RecordDetails(models.Model):
     sample_collection = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     sample_description = models.CharField(null=True, max_length=LENGTH_LONG)
     sample_material = models.CharField(null=True, max_length=LENGTH_MEDIUM)
-    sample_title = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    sample_title = models.CharField(null=True, max_length=LENGTH_LONG)
     sampling_campaign = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     sampling_platform = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     sampling_site = models.CharField(null=True, max_length=LENGTH_MEDIUM)

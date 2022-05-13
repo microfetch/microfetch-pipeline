@@ -1,5 +1,7 @@
 import logging
 import os
+import random
+
 import pandas
 import datetime
 import math
@@ -130,7 +132,7 @@ def get_taxons_to_check() -> pandas.DataFrame:
                 f"SELECT {taxon_id} FROM {Tables.TAXON.value} WHERE "
                 f"{last_updated} is null OR "
                 # Updated over a week ago
-                f"date_part('minutes', now() - {last_updated}) >= 5"
+                f"date_part('minutes', now() - {last_updated}) >= 0"
                 # f"date_part('days', now() - {last_updated}) >= 7"  # TODO: soft-code time diff later
             )),
             con=conn
@@ -176,7 +178,7 @@ def update_records(taxon_id: int) -> None:
     new_records = all_accessions.loc[~(all_accessions[experiment_accession].isin(local_records[experiment_accession]))]
 
     if len(new_records) == 0:
-        logger.info(f"All ENA {len(all_accessions)} records exist locally.")
+        logger.info(f"All {len(all_accessions)} ENA records exist locally.")
     else:
         logger.info((
             f"ENA has {len(all_accessions)} records. "
@@ -217,7 +219,9 @@ def query_ENA(taxon_id: int) -> pandas.DataFrame:
         print_result=False
     )
     df = pandas.DataFrame(accession_numbers)
-    return df
+    i = [x for x in range(len(df))]
+    random.shuffle(i)
+    return df.loc[i[0:100]].copy()
 
 
 def filter_accession_numbers() -> None:

@@ -1,123 +1,45 @@
 import logging
-import os
 import pandas
 import datetime
 import math
 import pytz
 import sqlalchemy
 
-from sqlalchemy.ext.automap import automap_base
+from typing import Callable
 from sqlalchemy.orm import Session
 from time import sleep
-from enum import Enum
 from requests import request
 
 from backend import fetch_accession_numbers
-from backend import filters
 
-
-class Settings(Enum):
-    ENA_REQUEST_LIMIT = 'ENA_REQUEST_LIMIT'
-
-
-SETTINGS = {
-    Settings.ENA_REQUEST_LIMIT: int(os.environ.get(Settings.ENA_REQUEST_LIMIT.value, '10000'))
-}
-
-
-# Adapted from https://stackoverflow.com/a/67305494
-class DatabaseHandler(logging.Handler):
-    backup_logger = None
-
-    def __init__(self, level=0, backup_logger_name=None):
-        super().__init__(level)
-        if backup_logger_name:
-            self.backup_logger = logging.getLogger(backup_logger_name)
-
-    def emit(self, record):
-        try:
-            msg = record.msg.replace('\n', '\t').replace("'", "''")
-            with Session(get_engine()) as session:
-                session.execute(sqlalchemy.text((
-                    f"INSERT INTO {Tables.LOGGING.value} (msg, level, logger_name, trace, create_datetime) "
-                    f"VALUES ('{msg}', {record.levelno}, '{record.name}', '{record.stack_info}', now())"
-                )))
-                session.commit()
-        except:
-            pass
+from taxon_tracker import filters
+from taxon_tracker.settings import Settings
+from taxon_tracker.logging import DatabaseHandler, stream_handler, log_format
+from taxon_tracker.database import Tables, COLUMNS, get_engine
 
 
 logger = logging.getLogger(__file__)
-log_format = logging.Formatter(fmt='%(asctime)s %(levelname)s:\t%(message)s')
-stream_handler = logging.StreamHandler()
 stream_handler.setFormatter(log_format)
 logger.addHandler(stream_handler)
 logger.addHandler(DatabaseHandler())
 logger.setLevel(logging.DEBUG)
 
-DB = None
+
+class ENA_Error(BaseException):
+    pass
 
 
-# Columns and tables are defined in web/webserver/models.py
-# The lists below are not exhaustive, they reflect items likely to be useful in the code.
-class Tables(Enum):
-    TAXON = 'webserver_taxons'
-    ACCESSION = 'webserver_accessionnumbers'
-    RECORD_DETAILS = 'webserver_recorddetails'
-    LOGGING = 'django_db_logger_statuslog'
-
-
-class TaxonCols(Enum):
-    TAXON_ID = 'taxon_id'
-    LAST_UPDATED = 'last_updated'
-    TIME_ADDED = 'time_added'
-
-
-class AccessionCols(Enum):
-    TAXON_ID = 'taxon_id_id'  # extra _id courtesy of Django
-    ACCESSION = 'accession'
-    EXPERIMENT_ACCESSION = 'experiment_accession'
-    RUN_ACCESSION = 'run_accession'
-    SAMPLE_ACCESSION = 'sample_accession'
-    PASSED_FILTER = 'passed_filter'
-    FILTER_FAILED = 'filter_failed'
-    TIME_ADDED = 'time_added'
-
-
-class RecordCols(Enum):
-    EXPERIMENT_ACCESSION = 'experiment_accession_id'
-    TIME_FETCHED = 'time_fetched'
-
-
-COLUMNS = {
-    Tables.TAXON: TaxonCols,
-    Tables.ACCESSION: AccessionCols,
-    Tables.RECORD_DETAILS: RecordCols
-}
-
-
-def get_engine() -> sqlalchemy.engine.Engine:
+def rate_limit(list_like: list, fun: Callable, rate: int) -> any:
     """
-    Get the database connection, opening it if necessary.
+    Apply a function to a list in segments of rate length.
+    fun() should return a list when handed a list.
     """
-    global DB
-    db_status = 0
-    try:
-        db_status = DB.status
-    except AttributeError:
-        pass
+    processed_list = []
+    for i in range(math.ceil(len(list_like) / rate)):
+        list_slice = list_like[i * rate:(i + 1) * rate]
+        processed_list = [*processed_list, *fun(list_slice)]
 
-    if not db_status:
-        db_uri = (
-            f"postgresql+psycopg2://"
-            f"{os.environ.get('POSTGRES_USER')}:"
-            f"{os.environ.get('POSTGRES_PASSWORD')}@"
-            f"db:5432/"  # set in docker-compose.yml
-            f"{os.environ.get('POSTGRES_DB')}"
-        )
-        DB = sqlalchemy.create_engine(db_uri, future=True)
-
-    return DB
+    return processed_list
 
 
 def get_taxons_to_check() -> pandas.DataFrame:
@@ -128,10 +50,10 @@ def get_taxons_to_check() -> pandas.DataFrame:
         df = pandas.read_sql(
             sql=sqlalchemy.text((
                 f"SELECT {taxon_id} FROM {Tables.TAXON.value} WHERE "
-                f"{last_updated} is null OR "
+                f"{last_updated} IS NULL OR "
                 # Updated over a week ago
-                f"date_part('minutes', now() - {last_updated}) >= 5"
-                # f"date_part('days', now() - {last_updated}) >= 7"  # TODO: soft-code time diff later
+                f"DATE_PART('{Settings.TAXON_UPDATE_UNITS.value}', NOW() - {last_updated}) >= "
+                f"{Settings.TAXON_UPDATE_N.value}"
             )),
             con=conn
         )
@@ -150,160 +72,98 @@ def update_taxons(taxon_ids: pandas.DataFrame) -> None:
         # mark taxon_id as updated
         with Session(get_engine()) as session:
             session.execute(sqlalchemy.text((
-                f"UPDATE {Tables.TAXON.value} SET {last_updated}=now() WHERE {t_id}={taxon_id}"
+                f"UPDATE {Tables.TAXON.value} SET {last_updated}=NOW() WHERE {t_id}={taxon_id}"
             )))
             session.commit()
 
 
 def update_records(taxon_id: int) -> None:
-    pass
     logger.info(f"Updating records for taxon id {taxon_id}.")
     # Query ENA for all accession numbers
-    all_accessions = query_ENA(taxon_id)
-
-    # Strip out existing accession numbers
-    experiment_accession = COLUMNS[Tables.ACCESSION].EXPERIMENT_ACCESSION.value
-    t_id = COLUMNS[Tables.ACCESSION].TAXON_ID.value
-    with get_engine().connect() as conn:
-        local_records = pandas.read_sql(
-            sql=sqlalchemy.text((
-                f"SELECT {experiment_accession} FROM {Tables.ACCESSION.value} WHERE "
-                f"{t_id} = {taxon_id}"
-            )),
-            con=conn
-        )
-
-    new_records = all_accessions.loc[~(all_accessions[experiment_accession].isin(local_records[experiment_accession]))]
-
-    if len(new_records) == 0:
-        logger.info(f"All ENA {len(all_accessions)} records exist locally.")
-    else:
-        logger.info((
-            f"ENA has {len(all_accessions)} records. "
-            f"{len(local_records)} local records found. "
-            f"Fetching {len(new_records)} new records."
-        ))
-
-        # Add new records to Accessions table
-        new_records[t_id] = [taxon_id for _ in range(len(new_records))]
-        # Update column name because django appends _id to foreign keys
-        new_records = new_records.rename(columns={
-            COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value: experiment_accession
-        })
-        # timezone (tz) should match web/settings/settings.py
-        new_records[COLUMNS[Tables.ACCESSION].TIME_ADDED.value] = \
-            [datetime.datetime.now(tz=pytz.UTC) for _ in range(len(new_records))]
-        with get_engine().connect() as conn:
-            new_records.to_sql(
-                name=Tables.ACCESSION.value,
-                con=conn,
-                if_exists='append',
-                index=False,
-                method='multi'
-            )
-            conn.commit()
-
-        logger.info(f"Added {len(new_records)} new records for taxon id {taxon_id}.")
+    query_ENA(taxon_id)
 
     # Filter new records for suitability
     filter_accession_numbers()
 
 
-def query_ENA(taxon_id: int) -> pandas.DataFrame:
+def query_ENA(taxon_id: int, all_accessions=None) -> None:
     logger.info(f"Fetching ENA accession numbers for taxon id {taxon_id}.")
-    accession_numbers = fetch_accession_numbers.fetch_records_direct(
-        taxon_id=str(taxon_id),
-        accession_type='experiment',
-        print_result=False
-    )
-    df = pandas.DataFrame(accession_numbers)
-    return df
-
-
-def filter_accession_numbers() -> None:
-    """
-    Fetch records for any accession numbers without a passed_filter decision and apply filters.
-    """
-    experiment_accession = COLUMNS[Tables.ACCESSION].EXPERIMENT_ACCESSION.value
-    experiment_accession_fk = COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value
-    passed_filter = COLUMNS[Tables.ACCESSION].PASSED_FILTER.value
-    filter_failed = COLUMNS[Tables.ACCESSION].FILTER_FAILED.value
-    with get_engine().connect() as conn:
-        accessions = pandas.read_sql(
-            sql=sqlalchemy.text((
-                f"SELECT {experiment_accession}, {passed_filter} FROM {Tables.ACCESSION.value} WHERE "
-                f"{passed_filter} is null"
-            )),
-            con=conn
-        )
-
-    if len(accessions) == 0:
-        return
-    else:
-        logger.info(f"Found {len(accessions)} records awaiting filtering.")
-
-    # Fetch detailed records if they don't already exist.
-    # This happens as a subset of accession numbers needing filtration because we might want to
-    # delete the record details after completed filter application because the complete records
-    # are much larger than the accession number summary and are only needed for filtering.
-    with get_engine().connect() as conn:
-        missing = pandas.read_sql(
-            sql=sqlalchemy.text((
-                f"SELECT {experiment_accession} FROM {Tables.ACCESSION.value} WHERE "
-                f"{passed_filter} is null AND "
-                f"{experiment_accession} not in (SELECT {experiment_accession_fk} FROM {Tables.RECORD_DETAILS.value})"
-            )),
-            con=conn
-        )
-
-    if len(missing):
-        fetch_ENA_records(missing[experiment_accession])
-
-    # Check records against filters
-    with get_engine().connect() as conn:
-        records = pandas.read_sql(
-            sql=sqlalchemy.text((
-                f"SELECT * FROM {Tables.RECORD_DETAILS.value} WHERE "
-                f"{experiment_accession_fk} in "
-                f"{tuple(accessions[experiment_accession])}"
-            )),
-            con=conn
-        )
-
-    filters.apply_filters(records=records, col_name_passed=passed_filter, col_name_failed=filter_failed)
-
-    # Save results
-    # rename accession number
-    new_accessions = records[[experiment_accession_fk, passed_filter, filter_failed]]
-    with Session(get_engine()) as session:
-        session.execute(
-            sqlalchemy.text((
-                f"UPDATE {Tables.ACCESSION.value} "
-                f"SET {experiment_accession}=:an, {passed_filter}=:fltr, {filter_failed}=:fail "
-                f"WHERE {experiment_accession}=:an"
-            )),
-            [{'an': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_accessions.itertuples(index=False)]
-        )
-        session.commit()
-
-    if len(records) > 0:
-        logger.info(f"{len(records.loc[records[passed_filter]])}/{len(records)} new records acceptable for assembly.")
-
-
-def fetch_ENA_records(accession_numbers: list) -> None:
-    logger.info(f"Fetching {len(accession_numbers)} new ENA record details.")
-    limit = SETTINGS[Settings.ENA_REQUEST_LIMIT]
-    response_limit = 0
-    successes = []
-    for i in range(math.ceil(len(accession_numbers) / limit)):
-        ans = accession_numbers[i * limit:(i + 1) * limit]
+    accessions = None
+    offset = 0
+    limit = Settings.ENA_REQUEST_LIMIT.value
+    while True:
         url = (
-            f"https://www.ebi.ac.uk/ena/portal/api/search?"
-            f"includeAccessions={','.join(ans)}"
-            f"&result=read_experiment&format=json&limit={response_limit}&fields=all"
+            f"https://www.ebi.ac.uk/ena/portal/api/links/taxon?"
+            f"accession={taxon_id}"
+            f"&format=json"
+            f"&limit={limit}"
+            f"&offset={offset}"
+            f"&result=read_run"
+            f"&subtree=true"
         )
         logger.debug(url)
-        result = request('GET', url=url)
+        result = request('GET', url)
+
+        if result.status_code == 204:
+            # Undocumented, but ENA sends 204 when asking for out-of-range results
+            break
+        if result.status_code != 200:
+            raise ENA_Error(result.text)
+
+        df = pandas.read_json(result.text)
+
+        if type(df) is not pandas.DataFrame:
+            break
+        if accessions is None:
+            accessions = df
+        else:
+            accessions = pandas.concat([df, accessions], ignore_index=True)
+
+        if len(df) >= limit:
+            offset = offset + limit
+        else:
+            break
+
+    logger.debug(f"Found {len(accessions)} accession numbers for taxon_id {taxon_id}.")
+
+    t_id = COLUMNS[Tables.ACCESSION].TAXON_ID.value
+    run_accession = COLUMNS[Tables.ACCESSION].RUN_ACCESSION.value
+
+    with get_engine().connect() as conn:
+        existing_records = pandas.read_sql(sqlalchemy.text((
+            f"SELECT {run_accession} FROM {Tables.ACCESSION.value} WHERE {t_id} = {taxon_id}"
+        )), con=conn)
+
+    missing = accessions.loc[~accessions[run_accession].isin(existing_records[run_accession])]
+
+    logger.info(f"{len(existing_records)}/{len(accessions)} ENA records exist locally.")
+
+    # Fetch records if they don't already exist.
+    if len(missing) > 0:
+        fetch_ENA_records(missing, taxon_id)
+
+
+def fetch_ENA_records(accessions: pandas.DataFrame, taxon_id: int) -> None:
+    logger.info(f"Fetching records for {len(accessions)} accessions.")
+    limit = Settings.ENA_REQUEST_LIMIT.value
+    response_limit = 0
+    successes = []
+    for i in range(math.ceil(len(accessions) / limit)):
+        ans = accessions.iloc[i * limit:(i + 1) * limit]
+        url = "https://www.ebi.ac.uk/ena/portal/api/search"
+        data = {
+            'includeAccessions': f"{','.join(ans[COLUMNS[Tables.ACCESSION].RUN_ACCESSION.value])}",
+            'result': 'read_run',
+            'format': 'json',
+            'limit': response_limit,
+            'fields': 'all'
+        }
+        logger.debug(f"Fetching records {i * limit}:{(i + 1) * limit}")
+
+        # TODO: remove debugging fwrite
+        with open('.request', 'w+') as f:
+            f.write(f"POST {url}\n\n{data}")
+        result = request('POST', url=url, data=data)
         if result.status_code != 200:
             logger.warning((
                 f"Error retrieving ENA record details. They will be retrieved later. API Error: {result.text}"
@@ -314,18 +174,54 @@ def fetch_ENA_records(accession_numbers: list) -> None:
                 if len(records) == 0:
                     logger.warning(f"Empty result set retrieved.")
                     continue
+
                 # Tidy up a couple of columns
-                records = records.rename(columns={
-                    'experiment_accession': COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value
-                })
+                accession_ids = []
+                for r in range(len(records)):
+                    row = records.iloc[r].to_dict()
+                    accession_ids.append((
+                        f"{row[COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value]}_"
+                        f"{row[COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value]}_"
+                        f"{row[COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value]}"
+                    ))
+                records[COLUMNS[Tables.RECORD_DETAILS].ACCESSION_ID.value] = accession_ids
                 records[COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
+
+                # Slim table for saving space
+                slim_records = records.filter(items=[
+                    COLUMNS[Tables.RECORD_DETAILS].ACCESSION_ID.value,
+                    COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value,
+                    COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value,
+                    COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value,
+                    COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value
+                ])
+                slim_records = slim_records.copy()
+                slim_records = slim_records.rename(columns={
+                    COLUMNS[Tables.RECORD_DETAILS].ACCESSION_ID.value:
+                        COLUMNS[Tables.ACCESSION].ACCESSION_ID.value,
+                    COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value:
+                        COLUMNS[Tables.ACCESSION].SAMPLE_ACCESSION.value,
+                    COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value:
+                        COLUMNS[Tables.ACCESSION].RUN_ACCESSION.value,
+                    COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value:
+                        COLUMNS[Tables.ACCESSION].EXPERIMENT_ACCESSION.value,
+                    COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value:
+                        COLUMNS[Tables.ACCESSION].TIME_FETCHED.value
+                })
+                slim_records[COLUMNS[Tables.ACCESSION].TAXON_ID.value] = taxon_id
+
                 with get_engine().connect() as conn:
                     records.to_sql(
                         name=Tables.RECORD_DETAILS.value,
                         con=conn,
                         if_exists='append',
-                        index=False,
-                        method='multi'
+                        index=False
+                    )
+                    slim_records.to_sql(
+                        name=Tables.ACCESSION.value,
+                        con=conn,
+                        if_exists='append',
+                        index=False
                     )
                     conn.commit()
 
@@ -336,7 +232,71 @@ def fetch_ENA_records(accession_numbers: list) -> None:
                     f"Error saving ENA record details. They will be retrieved later. Error: {e}"
                 ))
 
-    logger.info(f"Fetched {len(successes)}/{len(accession_numbers)} record details.")
+    logger.info(f"Fetched {len(successes)}/{len(accessions)} record details.")
+
+
+def filter_accession_numbers() -> None:
+    """
+    Fetch records for any accession numbers without a passed_filter decision and apply filters.
+    """
+    accession = COLUMNS[Tables.ACCESSION].ACCESSION_ID.value
+    accession_fk = COLUMNS[Tables.RECORD_DETAILS].ACCESSION_ID.value
+    passed_filter = COLUMNS[Tables.ACCESSION].PASSED_FILTER.value
+    filter_failed = COLUMNS[Tables.ACCESSION].FILTER_FAILED.value
+    waiting_since = COLUMNS[Tables.ACCESSION].WAITING_SINCE.value
+    with get_engine().connect() as conn:
+        accessions = pandas.read_sql(
+            sql=sqlalchemy.text((
+                f"SELECT {accession}, {passed_filter} FROM {Tables.ACCESSION.value} WHERE "
+                f"{passed_filter} IS NULL"
+            )),
+            con=conn
+        )
+
+    if len(accessions) == 0:
+        return
+    else:
+        logger.info(f"Found {len(accessions)} records awaiting filtering.")
+
+    # Check records against filters
+    with get_engine().connect() as conn:
+        records = pandas.read_sql(
+            sql=sqlalchemy.text((
+                f"SELECT * FROM {Tables.RECORD_DETAILS.value} WHERE "
+                f"{accession_fk} IN "
+                f"{tuple(accessions[accession])}"
+            )),
+            con=conn
+        )
+
+    filters.apply_filters(records=records, col_name_passed=passed_filter, col_name_failed=filter_failed)
+
+    # Save results
+    # rename accession number
+    new_accessions = records[[accession_fk, passed_filter, filter_failed]]
+    with Session(get_engine()) as session:
+        session.execute(
+            sqlalchemy.text((
+                f"UPDATE {Tables.ACCESSION.value} "
+                f"SET "
+                f"{accession}=:an, {passed_filter}=:fltr, {filter_failed}=:fail "
+                f"WHERE {accession}=:an"
+            )),
+            [{'an': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_accessions.itertuples(index=False)]
+        )
+        session.commit()
+        # Let the droplet manager know the records are waiting
+        session.execute(
+            sqlalchemy.text((
+                f"UPDATE {Tables.ACCESSION.value} "
+                f"SET {waiting_since} = now() WHERE "
+                f"{passed_filter} = True AND {waiting_since} IS NULL"
+            ))
+        )
+        session.commit()
+
+    if len(records) > 0:
+        logger.info(f"{len(records.loc[records[passed_filter]])}/{len(records)} new records acceptable for assembly.")
 
 
 if __name__ == '__main__':
@@ -350,10 +310,37 @@ if __name__ == '__main__':
             update_taxons(taxon_ids)
 
             # Check for available droplet
+            with get_engine().connect() as conn:
+                droplets = pandas.read_sql(sqlalchemy.text((
+                    f"SELECT id FROM {Tables.DROPLETS.value} "
+                    f"WHERE {COLUMNS[Tables.DROPLETS].COMPLETE.value} = True"
+                )), con=conn)
+            if len(droplets) >= Settings.MAX_DROPLETS.value:
+                logger.debug(f"Number of active droplets ({len(droplets)} already at maximum.")
+                continue
+            else:
+                logger.debug(f"{len(droplets)}/{Settings.MAX_DROPLETS.value} droplets active.")
 
-            # Check for enough accessions/accessions with long queue times
+            # Check for accession to launch
+            with get_engine().connect() as conn:
+                record = pandas.read_sql(sqlalchemy.text((
+                    f"SELECT "
+                    f"{COLUMNS[Tables.ACCESSION].ACCESSION_ID.value},"
+                    f"{COLUMNS[Tables.ACCESSION].WAITING_SINCE.value} "
+                    f"FROM "
+                    f"{Tables.ACCESSION.value} WHERE "
+                    f"{COLUMNS[Tables.ACCESSION].WAITING_SINCE.value} IS NOT NULL "
+                    f"ORDER BY {COLUMNS[Tables.ACCESSION].WAITING_SINCE.value}  "
+                    f"LIMIT 1"
+                )), con=conn)
+            if len(record) <= 0:
+                logger.debug(f"No records are awaiting assembly.")
+                continue
+            else:
+                logger.info(f"Assembling {record.loc[0, COLUMNS[Tables.ACCESSION].ACCESSION_ID.value]}.")
 
-            # Launch droplet
+            # Launch assembler
+
 
             # Find the next job
 

@@ -6,6 +6,7 @@ import pickle
 # import mapbox
 import sys
 from html import unescape
+from typing import Callable
 import logging
 
 logger = logging.getLogger(__file__)
@@ -19,7 +20,7 @@ class FilterImplementationException(Exception):
 
 
 class Filter:
-    def __init__(self, name: str, lambda_fun):
+    def __init__(self, name: str, lambda_fun: Callable[[pandas.DataFrame], pandas.Series]):
         self.name = name
         self._fun = lambda_fun
 
@@ -36,7 +37,7 @@ class Filter:
 
 class FilterNA(Filter):
     def __init__(self, name: str, field: str):
-        def lambda_fun(df: pandas.DataFrame) -> bool:
+        def lambda_fun(df: pandas.DataFrame) -> pandas.Series:
             return df[field].notna()
         super(FilterNA, self).__init__(name=name, lambda_fun=lambda_fun)
 
@@ -46,13 +47,13 @@ class FilterMatch(Filter):
         if type(value) is not list:
             value = [value]
 
-        def lambda_fun(df: pandas.DataFrame) -> bool:
+        def lambda_fun(df: pandas.DataFrame) -> pandas.Series:
             return df[field].isin(value)
 
         super(FilterMatch, self).__init__(name=name, lambda_fun=lambda_fun)
 
 
-def f_genome_size(df: pandas.DataFrame) -> bool:
+def f_genome_size(df: pandas.DataFrame) -> pandas.Series:
     size = os.environ.get('FILTER_GENOME_SIZE', None)
     if size is None:
         raise FilterImplementationException('Environment variable FILTER_GENOME_SIZE is not defined.')
@@ -62,7 +63,7 @@ def f_genome_size(df: pandas.DataFrame) -> bool:
     return df.genome_size >= int(size) * int(depth)
 
 
-def f_location_or_date(df: pandas.DataFrame) -> bool:
+def f_location_or_date(df: pandas.DataFrame) -> pandas.Series:
     # 1. Filter out entries with no lat nor lon 17,655/116,246
     has_lat_lon_df = df[df["lon"].notna()&df["lat"].notna()]
     # 2. Select entries with no lat or lon 98,591/116,246

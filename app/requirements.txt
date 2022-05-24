@@ -16,3 +16,5 @@ Django==4.0.4
 djangorestframework==3.13.1
 psycopg2-binary==2.9.3
 django-db-logger==0.1.12
+factory_boy==3.2.1
+faker==13.11.1

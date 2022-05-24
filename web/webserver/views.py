@@ -132,8 +132,8 @@ def api_accession(request: HttpRequest, accession_id: str) -> [JsonResponse, Htt
 
         accession = AccessionNumbers.objects.get(accession_id=accession_id)
         accession.assembly_result = data['assembly_result']
-        if data['assembly_genome_url']:
-            accession.assembly_genome_url = data['assembly_genome_url']
+        if data['assembled_genome_url']:
+            accession.assembly_genome_url = data['assembled_genome_url']
         if data['assembly_report_url']:
             accession.assembly_report_url = data['assembly_report_url']
         accession.save()
@@ -161,14 +161,14 @@ def api_request_assembly_candidate(request: HttpRequest) -> [JsonResponse, HttpR
             serializer = AccessionNumberSerializer(candidate)
             return JsonResponse({
                 **serializer.data,
-                'accept_url': reverse('confirm', args=(candidate.accession_id,)),
+                'accept_url': reverse('assembly_confirm', args=(candidate.accession_id,)),
                 'upload_url': reverse('accession', args=(candidate.accession_id,)),
                 'upload_fields': {
                     'assembly_result': {
                         'description': f"'{AssemblyStatus.FAIL.value}' or '{AssemblyStatus.SUCCESS.value}'.",
                         'required': True
                     },
-                    'assembly_genome_url': {
+                    'assembled_genome_url': {
                         'description': "URL of the assembled genomic data, if applicable.",
                         'required': False
                     },

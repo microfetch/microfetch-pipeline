@@ -10,8 +10,6 @@ from sqlalchemy.orm import Session
 from time import sleep
 from requests import request
 
-from backend import fetch_accession_numbers
-
 from taxon_tracker import filters
 from taxon_tracker.settings import Settings
 from taxon_tracker.logging import DatabaseHandler, stream_handler, log_format
@@ -193,7 +191,8 @@ def fetch_ENA_records(accessions: pandas.DataFrame, taxon_id: int) -> None:
                     COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value,
-                    COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value
+                    COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value,
+                    COLUMNS[Tables.RECORD_DETAILS].FASTQ_FTP.value
                 ])
                 slim_records = slim_records.copy()
                 slim_records = slim_records.rename(columns={
@@ -206,7 +205,9 @@ def fetch_ENA_records(accessions: pandas.DataFrame, taxon_id: int) -> None:
                     COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value:
                         COLUMNS[Tables.ACCESSION].EXPERIMENT_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value:
-                        COLUMNS[Tables.ACCESSION].TIME_FETCHED.value
+                        COLUMNS[Tables.ACCESSION].TIME_FETCHED.value,
+                    COLUMNS[Tables.RECORD_DETAILS].FASTQ_FTP.value:
+                        COLUMNS[Tables.ACCESSION].FASTQ_FTP.value
                 })
                 slim_records[COLUMNS[Tables.ACCESSION].TAXON_ID.value] = taxon_id
 
@@ -279,24 +280,57 @@ def filter_accession_numbers() -> None:
             sqlalchemy.text((
                 f"UPDATE {Tables.ACCESSION.value} "
                 f"SET "
-                f"{accession}=:an, {passed_filter}=:fltr, {filter_failed}=:fail "
+                f"{accession}=:an, {passed_filter}=:fltr, {filter_failed}=:fail, {waiting_since} = NOW() "
                 f"WHERE {accession}=:an"
             )),
             [{'an': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_accessions.itertuples(index=False)]
         )
         session.commit()
-        # Let the droplet manager know the records are waiting
+        # Let the api know the records are waiting
         session.execute(
             sqlalchemy.text((
                 f"UPDATE {Tables.ACCESSION.value} "
-                f"SET {waiting_since} = now() WHERE "
-                f"{passed_filter} = True AND {waiting_since} IS NULL"
+                f"SET {waiting_since} = NOW() "
+                f" WHERE {passed_filter} = True AND {waiting_since} IS NULL"
             ))
         )
         session.commit()
 
     if len(records) > 0:
         logger.info(f"{len(records.loc[records[passed_filter]])}/{len(records)} new records acceptable for assembly.")
+
+
+def release_accessions() -> None:
+    """
+    When the web API is called up to request a new accession record to assemble the
+    accession is marked as 'under consideration'.
+    The requester should confirm their request within 10 minutes, otherwise the accession will
+    be made available to other requesters for assembly.
+    This function resets the stale accessions to make them available again.
+
+    Additionally, any accessions whose assembly results have not been reported 7 after
+    7 days are marked as available again.
+    """
+    with Session(get_engine()) as session:
+        session.execute(
+            sqlalchemy.text((
+                f"UPDATE {Tables.ACCESSION.value} "
+                f"SET {COLUMNS[Tables.ACCESSION].ASSEMBLY_RESULT.value} = NULL, "
+                f"{COLUMNS[Tables.ACCESSION].WAITING_SINCE.value} = NOW() "
+                f"WHERE {COLUMNS[Tables.ACCESSION].ASSEMBLY_RESULT.value} = 'under consideration' "
+                f"AND date_part('minutes', NOW() - {COLUMNS[Tables.ACCESSION].WAITING_SINCE.value}) >= 10"
+            ))
+        )
+        session.execute(
+            sqlalchemy.text((
+                f"UPDATE {Tables.ACCESSION.value} "
+                f"SET {COLUMNS[Tables.ACCESSION].ASSEMBLY_RESULT.value} = NULL, "
+                f"{COLUMNS[Tables.ACCESSION].WAITING_SINCE.value} = NOW() "
+                f"WHERE {COLUMNS[Tables.ACCESSION].ASSEMBLY_RESULT.value} = 'in progress' "
+                f"AND date_part('days', NOW() - {COLUMNS[Tables.ACCESSION].WAITING_SINCE.value}) >= 7"
+            ))
+        )
+        session.commit()
 
 
 if __name__ == '__main__':
@@ -309,40 +343,8 @@ if __name__ == '__main__':
             taxon_ids = get_taxons_to_check()
             update_taxons(taxon_ids)
 
-            # Check for available droplet
-            with get_engine().connect() as conn:
-                droplets = pandas.read_sql(sqlalchemy.text((
-                    f"SELECT id FROM {Tables.DROPLETS.value} "
-                    f"WHERE {COLUMNS[Tables.DROPLETS].COMPLETE.value} = True"
-                )), con=conn)
-            if len(droplets) >= Settings.MAX_DROPLETS.value:
-                logger.debug(f"Number of active droplets ({len(droplets)} already at maximum.")
-                continue
-            else:
-                logger.debug(f"{len(droplets)}/{Settings.MAX_DROPLETS.value} droplets active.")
-
-            # Check for accession to launch
-            with get_engine().connect() as conn:
-                record = pandas.read_sql(sqlalchemy.text((
-                    f"SELECT "
-                    f"{COLUMNS[Tables.ACCESSION].ACCESSION_ID.value},"
-                    f"{COLUMNS[Tables.ACCESSION].WAITING_SINCE.value} "
-                    f"FROM "
-                    f"{Tables.ACCESSION.value} WHERE "
-                    f"{COLUMNS[Tables.ACCESSION].WAITING_SINCE.value} IS NOT NULL "
-                    f"ORDER BY {COLUMNS[Tables.ACCESSION].WAITING_SINCE.value}  "
-                    f"LIMIT 1"
-                )), con=conn)
-            if len(record) <= 0:
-                logger.debug(f"No records are awaiting assembly.")
-                continue
-            else:
-                logger.info(f"Assembling {record.loc[0, COLUMNS[Tables.ACCESSION].ACCESSION_ID.value]}.")
-
-            # Launch assembler
-
-
-            # Find the next job
+            # Release accessions that were requested but not acknowledged
+            release_accessions()
 
         except BaseException as e:
             logger.error(e)

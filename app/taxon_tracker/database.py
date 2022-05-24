@@ -28,11 +28,12 @@ class AccessionCols(Enum):
     EXPERIMENT_ACCESSION = 'experiment_accession'
     RUN_ACCESSION = 'run_accession'
     SAMPLE_ACCESSION = 'sample_accession'
+    FASTQ_FTP = 'fastq_ftp'
     PASSED_FILTER = 'passed_filter'
     FILTER_FAILED = 'filter_failed'
     TIME_FETCHED = 'time_fetched'
     WAITING_SINCE = 'waiting_since'
-    DROPLET = 'droplet_id'
+    ASSEMBLY_RESULT = 'assembly_result'
 
 
 class RecordCols(Enum):
@@ -41,20 +42,13 @@ class RecordCols(Enum):
     SAMPLE_ACCESSION = 'sample_accession'
     EXPERIMENT_ACCESSION = 'experiment_accession'
     RUN_ACCESSION = 'run_accession'
-
-
-class DropletCols(Enum):
-    ID = 'id'
-    IPV4 = 'ipv4'
-    TIME_CREATED = 'time_created'
-    COMPLETE = 'complete'
+    FASTQ_FTP = 'fastq_ftp'
 
 
 COLUMNS = {
     Tables.TAXON: TaxonCols,
     Tables.ACCESSION: AccessionCols,
-    Tables.RECORD_DETAILS: RecordCols,
-    Tables.DROPLETS: DropletCols
+    Tables.RECORD_DETAILS: RecordCols
 }
 
 

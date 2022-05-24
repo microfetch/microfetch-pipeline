@@ -1,10 +1,13 @@
-from django.http import HttpRequest, HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import render, redirect
-import logging
-import re
+from django.utils import timezone
 from django_db_logger.models import StatusLog
-from .models import Taxons, AccessionNumbers, RecordDetails
+from json import loads
+import logging
+from .models import Taxons, AccessionNumbers, RecordDetails, AssemblyStatus
+from .serializers import TaxonSerializer, AccessionNumberSerializer, RecordDetailSerializer
 
 logger = logging.getLogger(__file__)
 
@@ -57,49 +60,155 @@ def post(request: HttpRequest) -> HttpResponse:
     return redirect(reverse("index"))
 
 
-def callback(request: HttpRequest) -> HttpResponse:
-    logger.info(f"Request {request}")
-    try:
-        message = request.POST
-        logger.debug(message)
-        message['taxon_id'] = str(message['taxon_id'])
-        # Process message body
-        if message['taxon_id'] is None:
-            raise ValidationError(f"taxon_id must be present")
-        if re.match(
-                r"^((([0-1]?[0-9]?[0-9])|(2[0-4][0-9])|(25[0-4]))\.){3}(([0-1]?[0-9]?[0-9])|(2[0-4][0-9])|(25[0-4]))$",
-                message['droplet_ip']
-        ) is None:
-            raise ValidationError(f"droplet_ip must be an IPv4 address, received {message['droplet_ip']}")
-        if message['status'] != "ready" and message['status'] != "error":
-            raise ValidationError(f"unrecognised status, received {message['status']}")
-        if message['status'] == "error":
-            if message['error'] is not str:
-                raise ValidationError("error cannot be empty when status = 'error'")
-        else:
-            if message['error'] != "":
-                raise ValidationError(
-                    f"error must be blank when status != 'error', received {message['error']}"
-                )
-    except ValidationError as e:
-        return HttpResponse(e, status=400)
-    except Exception as e:
-        return HttpResponse(e, status=500)
+def api_taxons(request: HttpRequest) -> JsonResponse:
+    """
+    GET View all tracked taxons.
+    """
+    if request.method == 'GET':
+        taxons = Taxons.objects.all()
+        serializer = TaxonSerializer(taxons, many=True)
+        return JsonResponse(serializer.data, safe=False)
 
-    if message:
+
+@csrf_exempt
+def api_taxon(request: HttpRequest, taxon_id: str) -> JsonResponse:
+    """
+    PUT track a new taxon_id
+        201 - Created (returns GET data)
+        400 - Error during creation
+    GET view taxon_id record and a list of its related accession_ids
+        200 - OK
+    """
+    status = 200
+    if request.method == 'PUT':
         try:
-            request_command = (
-                f"update-droplet-status {message['taxon_id']} {message['droplet_ip']} {message['status']}"
-            )
-            logger.info(f"Request: {request_command}")
-            # TODO: some Postgres operation
+            Taxons.objects.update_or_create(taxon_id=int(taxon_id))
+            status = 201
+            logger.info(f"Added taxon id {taxon_id} via API call")
+        except ValueError as e:
+            logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")
+            return JsonResponse({'error': e}, status=400)
 
-            logger.info(f"Request processed successfully")
-            return HttpResponse("OK")
-        except Exception as e:
-            logger.error(f"Error processing valid request -- {e}")
-            return HttpResponse(e, status=500)
+    if request.method == 'GET' or status == 201:
+        taxon = Taxons.objects.get(taxon_id=taxon_id)
+        accessions = AccessionNumbers.objects.filter(taxon_id=taxon_id)
+        taxon_serialized = TaxonSerializer(taxon)
+        accessions_serialized = AccessionNumberSerializer(accessions, many=True)
+        return JsonResponse({
+            **taxon_serialized.data,
+            'accessions': accessions_serialized.data
+        }, status=status)
 
 
-def healthcheck(request):
+def _accession_details(accession_id: str) -> object:
+    accession = AccessionNumbers.objects.get(accession_id=accession_id)
+    details = RecordDetails.objects.filter(accession_id=accession_id)
+    return {
+        **AccessionNumberSerializer(accession).data,
+        'details': RecordDetailSerializer(details[0]).data
+    }
+
+
+@csrf_exempt
+def api_accession(request: HttpRequest, accession_id: str) -> [JsonResponse, HttpResponse]:
+    """
+    GET view a full accession record
+        200 - OK
+    PUT update an accession record with an assembly result
+        204 - Updated
+    """
+    if request.method == 'GET':
+        return JsonResponse(_accession_details(accession_id=accession_id))
+
+    if request.method == 'PUT':
+        errors = []
+        data = loads(request.body)
+        if not data['assembly_result']:
+            errors.append('Field assembly_result must be specified.')
+        elif data['assembly_result'] not in [s.value for s in AssemblyStatus]:
+            errors.append(f"Unrecognised assembly_result '{data['assembly_result']}'.")
+        if len(errors) > 0:
+            return JsonResponse(errors, status=400)
+
+        accession = AccessionNumbers.objects.get(accession_id=accession_id)
+        accession.assembly_result = data['assembly_result']
+        if data['assembly_genome_url']:
+            accession.assembly_genome_url = data['assembly_genome_url']
+        if data['assembly_report_url']:
+            accession.assembly_report_url = data['assembly_report_url']
+        accession.save()
+
+        return HttpResponse(status=204)
+
+
+def api_request_assembly_candidate(request: HttpRequest) -> [JsonResponse, HttpResponse]:
+    """
+    GET receive details of an accession awaiting assembly
+        200 - OK
+        204 - No accessions awaiting assembly
+    """
+    if request.method == 'GET':
+        candidates = AccessionNumbers.objects.filter(
+            waiting_since__isnull=False,
+            passed_filter=True,
+            assembly_result__isnull=True
+        )
+        if len(candidates) > 0:
+            candidate = candidates.order_by('waiting_since')[0]
+            candidate.assembly_result = AssemblyStatus.UNDER_CONSIDERATION.value
+            candidate.waiting_since = timezone.now()
+            candidate.save()
+            serializer = AccessionNumberSerializer(candidate)
+            return JsonResponse({
+                **serializer.data,
+                'accept_url': reverse('confirm', args=(candidate.accession_id,)),
+                'upload_url': reverse('accession', args=(candidate.accession_id,)),
+                'upload_fields': {
+                    'assembly_result': {
+                        'description': f"'{AssemblyStatus.FAIL.value}' or '{AssemblyStatus.SUCCESS.value}'.",
+                        'required': True
+                    },
+                    'assembly_genome_url': {
+                        'description': "URL of the assembled genomic data, if applicable.",
+                        'required': False
+                    },
+                    'assembly_report_url': {
+                        'description': "URL of the assembly report, if applicable.",
+                        'required': False
+                    }
+                },
+                'note': (
+                    "This accession number is temporarily held for you. "
+                    "If you do not send a GET request to the accept_url "
+                    "within 10 minutes, the API will assume that you do not wish "
+                    "to continue assembling this record. "
+                    "Please send a GET request to the accept_url if you decide "
+                    "to attempt assembly.\n"
+                    "Sending this request means you also promise to upload your "
+                    "results to the API by sending the data via PUT request to "
+                    f"the upload_url. "
+                    f"The PUT request payload should be JSON; see upload_fields for the fields."
+                )
+            })
+        else:
+            return HttpResponse(status=204)
+
+
+def api_confirm_assembly_candidate(request: HttpRequest, accession_id: str) -> [JsonResponse, HttpResponse]:
+    """
+    GET confirm assembly will proceed on an accession_id
+        204 - OK
+        400 - Error
+    """
+    if request.method == 'GET':
+        accession = AccessionNumbers.objects.get(accession_id=accession_id)
+        if accession.assembly_result == AssemblyStatus.UNDER_CONSIDERATION.value:
+            accession.assembly_result = AssemblyStatus.IN_PROGRESS.value
+            accession.waiting_since = timezone.now()
+            accession.save()
+            return HttpResponse(status=204)
+        return JsonResponse({'error': 'Invalid confirm candidate.'}, status=400)
+
+
+def healthcheck(request: HttpRequest) -> HttpResponse:
     return HttpResponse()

@@ -17,3 +17,5 @@ web/webserver/migrations/*
 !web/webserver/migrations/__init__.py
 
 app/taxon_tracker/__pycache__/
+
+tmp.json

@@ -1,8 +1,16 @@
 from django.db import models
+from enum import Enum
 
 LENGTH_ACCESSION = 40
 LENGTH_MEDIUM = 1024#256
 LENGTH_LONG = 4096
+
+
+class AssemblyStatus(Enum):
+    UNDER_CONSIDERATION = 'under consideration'
+    IN_PROGRESS = 'in progress'
+    FAIL = 'fail'
+    SUCCESS = 'success'
 
 
 class Taxons(models.Model):
@@ -19,11 +27,18 @@ class AccessionNumbers(models.Model):
     run_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     sample_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     secondary_sample_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
+    fastq_ftp = models.CharField(null=True, max_length=LENGTH_LONG)
     passed_filter = models.BooleanField(null=True)
     filter_failed = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     time_fetched = models.DateTimeField(auto_now_add=True)
     waiting_since = models.DateTimeField(null=True)
-    droplet = models.ForeignKey("Droplets", on_delete=models.DO_NOTHING, null=True)
+    assembly_result = models.CharField(
+        choices=[(s.value, s.value) for s in AssemblyStatus],
+        null=True,
+        max_length=LENGTH_ACCESSION
+    )
+    assembled_genome_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    assembly_report_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
 
 
 class RecordDetails(models.Model):
@@ -159,12 +174,3 @@ class RecordDetails(models.Model):
     tissue_lib = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     tissue_type = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     variety = models.CharField(null=True, max_length=LENGTH_MEDIUM)
-
-
-class Droplets(models.Model):
-    id = models.CharField(primary_key=True, max_length=LENGTH_ACCESSION)
-    ipv4 = models.CharField(max_length=15)
-    time_created = models.DateTimeField(auto_created=True)
-    complete = models.BooleanField(default=False)
-    success = models.BooleanField(null=True)
-    error = models.CharField(null=True, max_length=LENGTH_LONG)

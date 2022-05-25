@@ -12,6 +12,7 @@ jobs:
       postgres:
         image: postgres
         env:
+          # env matches the defaults in web/settings/settings.py
           POSTGRES_DB: postgres
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -36,11 +37,6 @@ jobs:
         python web/manage.py makemigrations
         python web/manage.py migrate
       env:
-        POSTGRES_DB: postgres
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
-        DBHOST: 127.0.0.1
-        DBPORT: 5432
         DJANGO_ALLOWED_HOSTS: localhost
         DJANGO_SECRET_KEY: foobar
 
@@ -48,11 +44,6 @@ jobs:
       run: |
         python web/manage.py test
       env:
-        POSTGRES_DB: postgres
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
-        DBHOST: 127.0.0.1
-        DBPORT: 5432
         DJANGO_ALLOWED_HOSTS: localhost
         DJANGO_SECRET_KEY: foobar
 

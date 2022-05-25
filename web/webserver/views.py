@@ -1,5 +1,5 @@
 from django.views.decorators.csrf import csrf_exempt
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse, Http404
 from django.urls import reverse
 from django.shortcuts import render, redirect
 from django.utils import timezone
@@ -101,8 +101,11 @@ def api_taxon(request: HttpRequest, taxon_id: str) -> JsonResponse:
 
 
 def _accession_details(accession_id: str) -> object:
-    accession = AccessionNumbers.objects.get(accession_id=accession_id)
-    details = RecordDetails.objects.filter(accession_id=accession_id)
+    try:
+        accession = AccessionNumbers.objects.get(accession_id=accession_id)
+        details = RecordDetails.objects.filter(accession_id=accession_id)
+    except (AccessionNumbers.DoesNotExist, RecordDetails.DoesNotExist):
+        raise Http404
     return {
         **AccessionNumberSerializer(accession).data,
         'details': RecordDetailSerializer(details[0]).data
@@ -127,13 +130,20 @@ def api_accession(request: HttpRequest, accession_id: str) -> [JsonResponse, Htt
             errors.append('Field assembly_result must be specified.')
         elif data['assembly_result'] not in [s.value for s in AssemblyStatus]:
             errors.append(f"Unrecognised assembly_result '{data['assembly_result']}'.")
-        if len(errors) > 0:
-            return JsonResponse(errors, status=400)
 
-        accession = AccessionNumbers.objects.get(accession_id=accession_id)
+        try:
+            accession = AccessionNumbers.objects.get(accession_id=accession_id)
+            if accession.assembly_result != AssemblyStatus.IN_PROGRESS.value:
+                errors.append(f'Record {accession_id} is not marked for assembly.')
+        except AccessionNumbers.DoesNotExist:
+            errors.append(f"No record found with accession_id {accession_id}")
+
+        if len(errors) > 0:
+            return JsonResponse({'error': errors}, status=400)
+
         accession.assembly_result = data['assembly_result']
         if data['assembled_genome_url']:
-            accession.assembly_genome_url = data['assembled_genome_url']
+            accession.assembled_genome_url = data['assembled_genome_url']
         if data['assembly_report_url']:
             accession.assembly_report_url = data['assembly_report_url']
         accession.save()

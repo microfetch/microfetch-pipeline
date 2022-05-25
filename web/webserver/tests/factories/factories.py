@@ -1,15 +1,19 @@
 import factory
 import faker
-from ...models import Taxons, AccessionNumbers, RecordDetails
+import django.conf.global_settings
+from ...models import Taxons, AccessionNumbers, RecordDetails, AssemblyStatus
+
+fake = faker.Faker(django.conf.global_settings.LANGUAGE_CODE)
 
 
 def random_accession(prefix: str) -> str:
-    return f"{prefix}{faker.Faker().random_int(min=100, max=10000)}"
+    return f"{prefix}{fake.random_int(min=100, max=10000)}"
 
 
 class TaxonFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Taxons
+        django_get_or_create = ('taxon_id',)
 
     taxon_id = factory.Faker('random_int', min=100, max=10000)
 
@@ -17,7 +21,28 @@ class TaxonFactory(factory.django.DjangoModelFactory):
 class AccessionFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = AccessionNumbers
-        django_get_or_create = ('taxon_id',)
+        django_get_or_create = ('accession_id',)
+
+    class Params:
+        filtered = factory.Trait(
+            passed_filter=True,
+            filter_failed=None,
+            waiting_since=fake.date_time_this_month()
+        )
+        accepted = factory.Trait(
+            assembly_result=AssemblyStatus.IN_PROGRESS.value,
+            waiting_since=fake.date_time_between('-7d')
+        )
+        completed = factory.Trait(
+            assembly_result=AssemblyStatus.FAIL.value,
+            assembly_report_url=fake.uri,
+            waiting_since=fake.date_time_this_month()
+        )
+        assembled = factory.Trait(
+            assembly_result=AssemblyStatus.SUCCESS.value,
+            assembled_genome_url=fake.uri,
+            waiting_since=fake.date_time_this_month()
+        )
 
     taxon_id = factory.SubFactory(TaxonFactory)
     accession = factory.LazyAttribute(lambda _: random_accession('ERR'))
@@ -26,13 +51,15 @@ class AccessionFactory(factory.django.DjangoModelFactory):
     sample_accession = factory.LazyAttribute(lambda _: random_accession('SAME'))
     secondary_sample_accession = factory.LazyAttribute(lambda _: random_accession('ERS'))
     accession_id = factory.LazyAttribute(lambda a: f"{a.experiment_accession}_{a.run_accession}_{a.sample_accession}")
-    fastq_ftp = factory.LazyAttribute(lambda _: f"{faker.Faker().url('ftp')};{faker.Faker().url('ftp')}")
-    # time_fetched = factory.Faker('iso8601')
-    passed_filter = factory.Faker('boolean')
+    fastq_ftp = factory.LazyAttribute(lambda _: f"{fake.url(['ftp'])};{fake.url(['ftp'])}")
 
-    filter_failed = factory.LazyAttribute(lambda a: factory.Faker(
-            'words',
-            nb=1,
+    @factory.lazy_attribute
+    def time_fetched(self):
+        return fake.date_time_this_year().isoformat()
+
+    # Trait defaults
+    passed_filter = False
+    filter_failed = factory.LazyAttribute(lambda a: fake.word(
             ext_word_list=[
                 'library_strategy = WGS',
                 'instrument_platform = ILLUMINA',
@@ -41,15 +68,21 @@ class AccessionFactory(factory.django.DjangoModelFactory):
                 'base_count size',
                 'date acceptable'
             ]
-        ) if not a.passed_filter else None)
-    # waiting_since = factory.LazyAttribute(
-    #     lambda a: factory.Faker('iso8601') if a.passed_filter else None
-    # )
-    assembly_result = factory.LazyAttribute(lambda a: faker.Faker().words(
-        nb=1,
-        ext_word_list=['success', 'fail']
-    ) if a.passed_filter else None)
-    assembly_report_url = factory.LazyAttribute(lambda a: faker.Faker().uri if a.passed_filter else None)
-    assembled_genome_url = factory.LazyAttribute(
-        lambda a: faker.Faker().uri() if a.assembly_result == 'success' else None
-    )
+        ))
+    assembly_result = None
+    assembled_genome_url = None
+    waiting_since = None
+
+    # Traits
+    filtered = factory.Sequence(lambda n: n % 10 > 0)
+    accepted = factory.LazyAttributeSequence(lambda o, n: o.filtered and n % 5 == 0)
+    completed = factory.LazyAttributeSequence(lambda o, n: o.accepted and n % 4 == 0)
+    assembled = factory.LazyAttributeSequence(lambda o, n: o.accepted and n % 2 == 0)
+
+
+class RecordDetailsFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = RecordDetails
+        django_get_or_create = ('accession_id_id',)
+
+

@@ -1,0 +1,174 @@
+openapi: 3.0.2
+info:
+  title: ''
+  version: ''
+paths:
+  /api/taxons/:
+    get:
+      operationId: listListTaxons
+      description: View all tracked taxons.
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {}
+          description: ''
+      tags:
+      - api
+  /api/taxon/{taxon_id}/:
+    get:
+      operationId: retrieveViewTaxon
+      description: 'View details of a taxon_id.
+
+
+        **taxon_id**: Taxonomic identifier (will include subtree)'
+      parameters:
+      - name: taxon_id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: ''
+      tags:
+      - api
+    put:
+      operationId: updateViewTaxon
+      description: 'Add a new taxon_id for tracking.
+
+
+        **taxon_id**: Taxonomic identifier (will include subtree)'
+      parameters:
+      - name: taxon_id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+          application/x-www-form-urlencoded:
+            schema: {}
+          multipart/form-data:
+            schema: {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: ''
+      tags:
+      - api
+  /api/accession/{accession_id}/:
+    get:
+      operationId: retrieveViewAccession
+      description: 'View metadata for an ENA record.
+
+
+        **accession_id**: Record identifier'
+      parameters:
+      - name: accession_id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: ''
+      tags:
+      - api
+    put:
+      operationId: updateViewAccession
+      description: 'Update metadata for an ENA record with an assembly attempt result.
+
+
+        **accession_id**: Record identifier'
+      parameters:
+      - name: accession_id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema: {}
+          application/x-www-form-urlencoded:
+            schema: {}
+          multipart/form-data:
+            schema: {}
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: ''
+      tags:
+      - api
+  /api/request_assembly_candidate/:
+    get:
+      operationId: listRequestAssemblyCandidates
+      description: 'NON-RESTFUL - Will determine the next available record for assembly
+        and return it.
+
+
+        The record will be marked as ''under consideration''.
+
+        If the request is not confirmed within ten minutes, the record will be unlocked
+        and
+
+        may be presented in response to future requests.
+
+
+        Checking out a record in this way obliges you to attempt to assemble the genome
+        and
+
+        report the result using this API.'
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {}
+          description: ''
+      tags:
+      - api
+  /api/confirm_assembly_candidate/{accession_id}/:
+    get:
+      operationId: retrieveAcceptAssemblyCandidate
+      description: 'Confirm assembly will proceed on an accession_id
+
+
+        **accession_id**: Record identifier'
+      parameters:
+      - name: accession_id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: ''
+      tags:
+      - api

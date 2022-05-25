@@ -4,6 +4,7 @@ from django.urls import reverse
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from django_db_logger.models import StatusLog
+import rest_framework.views
 from json import loads
 import logging
 from .models import Taxons, AccessionNumbers, RecordDetails, AssemblyStatus
@@ -60,36 +61,38 @@ def post(request: HttpRequest) -> HttpResponse:
     return redirect(reverse("index"))
 
 
-def api_taxons(request: HttpRequest) -> JsonResponse:
-    """
-    GET View all tracked taxons.
-    """
-    if request.method == 'GET':
+class ListTaxons(rest_framework.views.APIView):
+
+    def get(self, request: HttpRequest) -> JsonResponse:
+        """
+        View all tracked taxons.
+        """
         taxons = Taxons.objects.all()
         serializer = TaxonSerializer(taxons, many=True)
         return JsonResponse(serializer.data, safe=False)
 
 
-@csrf_exempt
-def api_taxon(request: HttpRequest, taxon_id: str) -> JsonResponse:
-    """
-    PUT track a new taxon_id
-        201 - Created (returns GET data)
-        400 - Error during creation
-    GET view taxon_id record and a list of its related accession_ids
-        200 - OK
-    """
-    status = 200
-    if request.method == 'PUT':
+class ViewTaxon(rest_framework.views.APIView):
+    def put(self, request: HttpRequest, taxon_id: str, **kwargs) -> JsonResponse:
+        """
+        Add a new taxon_id for tracking.
+
+        **taxon_id**: Taxonomic identifier (will include subtree)
+        """
         try:
             Taxons.objects.update_or_create(taxon_id=int(taxon_id))
-            status = 201
             logger.info(f"Added taxon id {taxon_id} via API call")
         except ValueError as e:
             logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")
             return JsonResponse({'error': e}, status=400)
+        return self.get(request=request, taxon_id=taxon_id, status=201, **kwargs)
 
-    if request.method == 'GET' or status == 201:
+    def get(self, request: HttpRequest, taxon_id: str, **kwargs):
+        """
+        View details of a taxon_id.
+
+        **taxon_id**: Taxonomic identifier (will include subtree)
+        """
         taxon = Taxons.objects.get(taxon_id=taxon_id)
         accessions = AccessionNumbers.objects.filter(taxon_id=taxon_id)
         taxon_serialized = TaxonSerializer(taxon)
@@ -97,33 +100,36 @@ def api_taxon(request: HttpRequest, taxon_id: str) -> JsonResponse:
         return JsonResponse({
             **taxon_serialized.data,
             'accessions': accessions_serialized.data
-        }, status=status)
+        }, status=kwargs['status'])
 
 
-def _accession_details(accession_id: str) -> object:
-    try:
-        accession = AccessionNumbers.objects.get(accession_id=accession_id)
-        details = RecordDetails.objects.filter(accession_id=accession_id)
-    except (AccessionNumbers.DoesNotExist, RecordDetails.DoesNotExist):
-        raise Http404
-    return {
-        **AccessionNumberSerializer(accession).data,
-        'details': RecordDetailSerializer(details[0]).data
-    }
+class ViewAccession(rest_framework.views.APIView):
 
+    def _accession_details(self, accession_id: str) -> object:
+        try:
+            accession = AccessionNumbers.objects.get(accession_id=accession_id)
+            details = RecordDetails.objects.filter(accession_id=accession_id)
+        except (AccessionNumbers.DoesNotExist, RecordDetails.DoesNotExist):
+            raise Http404
+        return {
+            **AccessionNumberSerializer(accession).data,
+            'details': RecordDetailSerializer(details[0]).data
+        }
 
-@csrf_exempt
-def api_accession(request: HttpRequest, accession_id: str) -> [JsonResponse, HttpResponse]:
-    """
-    GET view a full accession record
-        200 - OK
-    PUT update an accession record with an assembly result
-        204 - Updated
-    """
-    if request.method == 'GET':
-        return JsonResponse(_accession_details(accession_id=accession_id))
+    def get(self, request: HttpRequest, accession_id: str, **kwargs):
+        """
+        View metadata for an ENA record.
 
-    if request.method == 'PUT':
+        **accession_id**: Record identifier
+        """
+        return JsonResponse(self._accession_details(accession_id=accession_id))
+
+    def put(self, request: HttpRequest, accession_id: str, **kwargs):
+        """
+        Update metadata for an ENA record with an assembly attempt result.
+
+        **accession_id**: Record identifier
+        """
         errors = []
         data = loads(request.body)
         if not data['assembly_result']:
@@ -151,13 +157,18 @@ def api_accession(request: HttpRequest, accession_id: str) -> [JsonResponse, Htt
         return HttpResponse(status=204)
 
 
-def api_request_assembly_candidate(request: HttpRequest) -> [JsonResponse, HttpResponse]:
-    """
-    GET receive details of an accession awaiting assembly
-        200 - OK
-        204 - No accessions awaiting assembly
-    """
-    if request.method == 'GET':
+class RequestAssemblyCandidate(rest_framework.views.APIView):
+    def get(self, request: HttpRequest, **kwargs) -> [JsonResponse, HttpResponse]:
+        """
+        NON-RESTFUL - Will determine the next available record for assembly and return it.
+
+        The record will be marked as 'under consideration'.
+        If the request is not confirmed within ten minutes, the record will be unlocked and
+        may be presented in response to future requests.
+
+        Checking out a record in this way obliges you to attempt to assemble the genome and
+        report the result using this API.
+        """
         candidates = AccessionNumbers.objects.filter(
             waiting_since__isnull=False,
             passed_filter=True,
@@ -204,13 +215,13 @@ def api_request_assembly_candidate(request: HttpRequest) -> [JsonResponse, HttpR
             return HttpResponse(status=204)
 
 
-def api_confirm_assembly_candidate(request: HttpRequest, accession_id: str) -> [JsonResponse, HttpResponse]:
-    """
-    GET confirm assembly will proceed on an accession_id
-        204 - OK
-        400 - Error
-    """
-    if request.method == 'GET':
+class AcceptAssemblyCandidate(rest_framework.views.APIView):
+    def get(self, request: HttpRequest, accession_id: str, **kwargs) -> [JsonResponse, HttpResponse]:
+        """
+        Confirm assembly will proceed on an accession_id
+
+        **accession_id**: Record identifier
+        """
         accession = AccessionNumbers.objects.get(accession_id=accession_id)
         if accession.assembly_result == AssemblyStatus.UNDER_CONSIDERATION.value:
             accession.assembly_result = AssemblyStatus.IN_PROGRESS.value

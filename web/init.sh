@@ -15,8 +15,12 @@ until PGPASSWORD=$POSTGRES_PASSWORD psql -h "$host" -U "$POSTGRES_USER" -c '\q';
 done
 
 >&2 echo "Postgres ready - initalising"
+>&2 echo "Make and apply migrations"
 python manage.py makemigrations
 python manage.py migrate
+
+>&2 echo "Update API documentation"
+python manage.py generateschema --file openapi-schema.yml
 
 >&2 echo "Initalisation complete - running command $*"
 exec "$@"

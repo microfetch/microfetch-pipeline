@@ -41,7 +41,7 @@ jobs:
         POSTGRES_PASSWORD: postgres
         DBHOST: 127.0.0.1
         DBPORT: 5432
-        DJANGO_ALLOWED_HOSTS: *
+        DJANGO_ALLOWED_HOSTS: localhost
         DJANGO_SECRET_KEY: foobar
 
     - name: Run Tests
@@ -53,7 +53,7 @@ jobs:
         POSTGRES_PASSWORD: postgres
         DBHOST: 127.0.0.1
         DBPORT: 5432
-        DJANGO_ALLOWED_HOSTS: *
+        DJANGO_ALLOWED_HOSTS: localhost
         DJANGO_SECRET_KEY: foobar
 
 #    - name: Setup tmate session

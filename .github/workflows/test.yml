@@ -1,0 +1,56 @@
+name: Web API Tests
+
+# adapted from https://cuda-chen.github.io/devops/2021/05/31/django-mysql-github-actions.html
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: [ '5432:5432' ]
+
+    steps:
+    - uses: actions/checkout@v2
+
+    - name: Set up Python 3.10.4
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.10.4
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r web/requirements.test.txt
+
+    - name: Run Migrations
+      run: |
+        python web/manage.py makemigrations
+        python web/manage.py migrate
+      env:
+        POSTGRES_DB: postgres
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+        DBHOST: 127.0.0.1
+        DBPORT: 5432
+
+    - name: Run Tests
+      run: |
+        python web/manage.py test
+      env:
+        POSTGRES_DB: postgres
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+        DBHOST: 127.0.0.1
+        DBPORT: 5432
+
+#    - name: Setup tmate session
+#      if: ${{ failure() }}
+#      uses: mxschmitt/action-tmate@v3

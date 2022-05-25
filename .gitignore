@@ -3,5 +3,19 @@
 /app/data/
 
 app/src/backend/__pycache__/
+app/backend/__pycache__/
+app_old/
 
 docs/book
+
+*.env
+*.env.*
+
+data/
+
+web/webserver/migrations/*
+!web/webserver/migrations/__init__.py
+
+app/taxon_tracker/__pycache__/
+
+tmp.json

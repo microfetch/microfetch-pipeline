@@ -1,13 +1,40 @@
-version: '3.7'
+version: '3.9'
 
 services:
 
-  app:
-    build: .
+  db:
+      image: postgres
+      ports:
+        - "5432:5432"  # dev exposure
+      volumes:
+        - ./data/db:/var/lib/postgresql/data
+      env_file:
+        - .env.postgres
+
+  web:
+    build: ./web
+    command: ["./init.sh", "db", "--", "python", "manage.py", "runserver", "0.0.0.0:8000"]
+    volumes:
+      - ./web:/web
     ports:
-      - "8001:80"
+      - "8000:8000"
+    env_file:
+      - .env.postgres
+      - .env.django
+    depends_on:
+      - db
+
+  app:
+    build: ./app
+    entrypoint: ["./init.sh", "web", "8000", "--", "python", "taxon_tracker.py"]
     volumes:
       - ./app:/app
+    env_file:
+      - .env.taxon_tracker
+      - .env.digital_ocean
+      - .env.postgres
+    depends_on:
+      - web
 
   # Documentation
   mdbook:

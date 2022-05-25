@@ -1,0 +1,20 @@
+# App
+pandas==1.4.2
+psycopg2-binary==2.9.3
+sqlalchemy==1.4.36
+# Backend microfetch stuff
+retry==0.9.2
+requests==2.27.1
+ena_utils==0.2.1
+mapbox==0.18.0
+# Digital Ocean
+python-digitalocean==1.17.0
+
+
+# web requirements -- dev only. TODO: remove for production
+Django==4.0.4
+djangorestframework==3.13.1
+psycopg2-binary==2.9.3
+django-db-logger==0.1.12
+factory_boy==3.2.1
+faker==13.11.1

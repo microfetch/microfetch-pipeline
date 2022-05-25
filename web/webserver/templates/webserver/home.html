@@ -1,0 +1,112 @@
+<style>
+    .flex, .flex-column {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-evenly;
+        align-content: space-evenly;
+    }
+    .flex-column {
+        flex-direction: column;
+    }
+
+    body {
+        background-color: aliceblue;
+    }
+    .control-panel {
+        display: grid;
+        grid-template-rows: 5em 1fr 10em;
+        width: 100%;
+        height: 100%;
+        justify-content: center;
+    }
+    .banner {
+        font-size: large;
+        text-align: center;
+    }
+    .actions {
+        background-color: white;
+    }
+    .actions > * {
+        margin: 2em;
+        padding: 1em;
+    }
+    .add-taxon-id > form {
+        align-content: start;
+    }
+    .add-taxon-id > form > * > * {
+        margin: .2em;
+    }
+    .add-taxon-id > form > * > *:first-child {
+        margin-top: 0;
+    }
+    .add-taxon-id > form > * > *:last-child {
+        margin-bottom: 0;
+    }
+    .add-taxon-id > form > .buttons {
+        justify-content: start;
+    }
+    .messages {
+        max-height: 200px;
+        overflow-y: auto;
+        padding: .2em;
+    }
+</style>
+<section class="control-panel">
+    <header class="banner">
+        <h1>microfetch-pipeline management console</h1>
+    </header>
+    <div class="actions">
+        <div class="add-taxon-id">
+            <form action="/post/" method="post" class="flex">
+                {% csrf_token %}
+                <label for="taxon_id">Add taxon id</label>
+                <div class="values">
+                    <div class="inputs flex-column">
+                        <input type="hidden" name="taxon_ids" value=""/>
+                        <input type="number" id="taxon_id" name="taxon_id_0" onchange="check_add_fields()"/>
+                    </div>
+                    <button type="submit" onclick="return false">+</button>
+                </div>
+                <div class="buttons flex-column">
+                    <button type="submit">Add to tracker</button>
+                </div>
+            </form>
+            <script type="text/javascript">
+                function check_add_fields() {
+                    const fields = document.querySelectorAll(`.add-taxon-id input[type='number']`)
+                    const values = []
+                    for(let i = 0; i < fields.length; i++) {
+                        const me = fields[i]
+                        const next = fields.length > i + 1? false : fields[i + 1]
+                        if(!me.value) {
+                            if(next && next.value) {
+                                me.value = next.value
+                                next.value = ""
+                            } else if(i !== fields.length - 1) {
+                                me.remove()
+                            }
+                        } else {
+                            values.push(me.value)
+                            if (i === fields.length - 1) {
+                                const elm = document.createElement('input')
+                                elm.type = 'number'
+                                elm.name = `taxon_id_${i + 1}`
+                                elm.addEventListener('change', check_add_fields)
+                                me.parentElement.appendChild(elm)
+                                elm.focus()
+                            }
+                        }
+                    }
+                    document.querySelector(`.add-taxon-id input[name='taxon_ids']`).value = values.join(',')
+                }
+            </script>
+        </div>
+    </div>
+    <div class="messages">
+        <ul>
+            {% for msg in messages %}
+            <li>{{msg}}</li>
+            {% endfor %}
+        </ul>
+    </div>
+</section>

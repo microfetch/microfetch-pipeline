@@ -1,5 +1,7 @@
 # microfetch pipeline
 
+[![Web API Tests](https://github.com/OxfordRSE/microfetch-pipeline/actions/workflows/test.yml/badge.svg)](https://github.com/OxfordRSE/microfetch-pipeline/actions/workflows/test.yml)
+
 ## Introduction
 
 The microfetch procedure is used to assemble genomes from genomic data 

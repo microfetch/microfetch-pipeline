@@ -123,22 +123,8 @@ paths:
   /api/request_assembly_candidate/:
     get:
       operationId: listRequestAssemblyCandidates
-      description: 'NON-RESTFUL - Will determine the next available record for assembly
+      description: NON-RESTFUL - Will determine the next available record for assembly
         and return it.
-
-
-        The record will be marked as ''under consideration''.
-
-        If the request is not confirmed within ten minutes, the record will be unlocked
-        and
-
-        may be presented in response to future requests.
-
-
-        Checking out a record in this way obliges you to attempt to assemble the genome
-        and
-
-        report the result using this API.'
       parameters: []
       responses:
         '200':
@@ -169,6 +155,22 @@ paths:
           content:
             application/json:
               schema: {}
+          description: ''
+      tags:
+      - api
+  /api/qualifyr_report_fields/:
+    get:
+      operationId: listQualifyrReportFields
+      description: A list of all acceptable fields for inclusion in a Qualifyr Report
+        upload.
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: array
+                items: {}
           description: ''
       tags:
       - api

@@ -7,7 +7,7 @@ from django_db_logger.models import StatusLog
 import rest_framework.views
 from json import loads
 import logging
-from .models import Taxons, AccessionNumbers, RecordDetails, AssemblyStatus
+from .models import Taxons, AccessionNumbers, RecordDetails, AssemblyStatus, QualifyrReport, name_map, qualifyr_name_map
 from .serializers import TaxonSerializer, AccessionNumberSerializer, RecordDetailSerializer
 
 logger = logging.getLogger(__file__)
@@ -80,7 +80,14 @@ class ViewTaxon(rest_framework.views.APIView):
         **taxon_id**: Taxonomic identifier (will include subtree)
         """
         try:
-            Taxons.objects.update_or_create(taxon_id=int(taxon_id))
+            if "filters" in request.POST['filters']:
+                filters = {"filters": request.POST['filters']}
+            else:
+                filters = None
+            Taxons.objects.update_or_create(
+                taxon_id=int(taxon_id),
+                post_assembly_filters=filters
+            )
             logger.info(f"Added taxon id {taxon_id} via API call")
         except ValueError as e:
             logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")
@@ -150,9 +157,16 @@ class ViewAccession(rest_framework.views.APIView):
         accession.assembly_result = data['assembly_result']
         if data['assembled_genome_url']:
             accession.assembled_genome_url = data['assembled_genome_url']
-        if data['assembly_report_url']:
-            accession.assembly_report_url = data['assembly_report_url']
+        if data['assembly_error_report_url']:
+            accession.assembly_report_url = data['assembly_error_report_url']
         accession.save()
+
+        # Map the qualifyr_report to a database entry if it exists
+        if data['qualifyr_report']:
+            report = {}
+            for k, v in data['qualifyr_report']:
+                report[name_map(k)] = v
+            QualifyrReport.objects.create(accession_id=accession.accession_id, **report)
 
         return HttpResponse(status=204)
 
@@ -161,6 +175,8 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
     def get(self, request: HttpRequest, **kwargs) -> [JsonResponse, HttpResponse]:
         """
         NON-RESTFUL - Will determine the next available record for assembly and return it.
+        TODO: Would be more restful to return all, let client choose, and have client reserve via
+            a GET /api/confirm_assembly_candidate/ (can return non-200 status code if already reserved).
 
         The record will be marked as 'under consideration'.
         If the request is not confirmed within ten minutes, the record will be unlocked and
@@ -180,8 +196,14 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
             candidate.waiting_since = timezone.now()
             candidate.save()
             serializer = AccessionNumberSerializer(candidate)
+            try:
+                filters = Taxons.objects.get(taxon_id=candidate.taxon_id_id).post_assembly_filters
+            except BaseException:
+                filters = None
+
             return JsonResponse({
                 **serializer.data,
+                'post_assembly_filters': filters,
                 'accept_url': reverse('assembly_confirm', args=(candidate.accession_id,)),
                 'upload_url': reverse('accession', args=(candidate.accession_id,)),
                 'upload_fields': {
@@ -193,8 +215,15 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
                         'description': "URL of the assembled genomic data, if applicable.",
                         'required': False
                     },
-                    'assembly_report_url': {
-                        'description': "URL of the assembly report, if applicable.",
+                    'assembly_error_report_url': {
+                        'description': "URL of the nextflow pipeline error log for failed runs.",
+                        'required': False
+                    },
+                    'qualifyr_report': {
+                        'description': (
+                            "JSON representation of the assembly qualifyr_report.tsv file. "
+                            f"For a full list of compatible fields, GET {reverse('qualifyr_report_fields')}."
+                        ),
                         'required': False
                     }
                 },
@@ -229,6 +258,14 @@ class AcceptAssemblyCandidate(rest_framework.views.APIView):
             accession.save()
             return HttpResponse(status=204)
         return JsonResponse({'error': 'Invalid confirm candidate.'}, status=400)
+
+
+class QualifyrReportFields(rest_framework.views.APIView):
+    def get(self, request: HttpRequest, **kwargs) -> JsonResponse:
+        """
+        A list of all acceptable fields for inclusion in a Qualifyr Report upload.
+        """
+        return JsonResponse([v for _, v in qualifyr_name_map.items()], safe=False)
 
 
 def healthcheck(request: HttpRequest) -> HttpResponse:

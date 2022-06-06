@@ -27,5 +27,6 @@ urlpatterns = [
         'api/confirm_assembly_candidate/<str:accession_id>/',
         views.AcceptAssemblyCandidate.as_view(),
         name='assembly_confirm'
-    )
+    ),
+    path('api/qualifyr_report_fields/', views.QualifyrReportFields.as_view(), name='qualifyr_report_fields')
 ]

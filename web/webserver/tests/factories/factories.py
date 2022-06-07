@@ -1,7 +1,7 @@
 import factory
 import faker
 import django.conf.global_settings
-from ...models import Taxons, AccessionNumbers, RecordDetails, AssemblyStatus
+from ...models import Taxons, Records, RecordDetails, AssemblyStatus
 
 fake = faker.Faker(django.conf.global_settings.LANGUAGE_CODE)
 
@@ -13,15 +13,15 @@ def random_accession(prefix: str) -> str:
 class TaxonFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = Taxons
-        django_get_or_create = ('taxon_id',)
+        django_get_or_create = ('id',)
 
-    taxon_id = factory.Faker('random_int', min=100, max=10000)
+    id = factory.Faker('random_int', min=100, max=10000)
 
 
-class AccessionFactory(factory.django.DjangoModelFactory):
+class RecordFactory(factory.django.DjangoModelFactory):
     class Meta:
-        model = AccessionNumbers
-        django_get_or_create = ('accession_id',)
+        model = Records
+        django_get_or_create = ('id',)
 
     class Params:
         filtered = factory.Trait(
@@ -35,7 +35,7 @@ class AccessionFactory(factory.django.DjangoModelFactory):
         )
         completed = factory.Trait(
             assembly_result=AssemblyStatus.FAIL.value,
-            assembly_report_url=fake.uri,
+            assembly_error_report_url=fake.uri,
             waiting_since=fake.date_time_this_month()
         )
         assembled = factory.Trait(
@@ -44,13 +44,13 @@ class AccessionFactory(factory.django.DjangoModelFactory):
             waiting_since=fake.date_time_this_month()
         )
 
-    taxon_id = factory.SubFactory(TaxonFactory)
+    taxon = factory.SubFactory(TaxonFactory)
     accession = factory.LazyAttribute(lambda _: random_accession('ERR'))
     experiment_accession = factory.LazyAttribute(lambda _: random_accession('ERX'))
     run_accession = accession
     sample_accession = factory.LazyAttribute(lambda _: random_accession('SAME'))
     secondary_sample_accession = factory.LazyAttribute(lambda _: random_accession('ERS'))
-    accession_id = factory.LazyAttribute(lambda a: f"{a.experiment_accession}_{a.run_accession}_{a.sample_accession}")
+    id = factory.LazyAttribute(lambda a: f"{a.experiment_accession}_{a.run_accession}_{a.sample_accession}")
     fastq_ftp = factory.LazyAttribute(lambda _: f"{fake.url(['ftp'])};{fake.url(['ftp'])}")
 
     @factory.lazy_attribute
@@ -83,6 +83,6 @@ class AccessionFactory(factory.django.DjangoModelFactory):
 class RecordDetailsFactory(factory.django.DjangoModelFactory):
     class Meta:
         model = RecordDetails
-        django_get_or_create = ('accession_id_id',)
+        django_get_or_create = ('record_id',)
 
 

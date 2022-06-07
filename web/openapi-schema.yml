@@ -21,10 +21,10 @@ paths:
   /api/taxon/{taxon_id}/:
     get:
       operationId: retrieveViewTaxon
-      description: 'View details of a taxon_id.
+      description: 'View details of a id.
 
 
-        **taxon_id**: Taxonomic identifier (will include subtree)'
+        **id**: Taxonomic identifier (will include subtree)'
       parameters:
       - name: taxon_id
         in: path
@@ -42,10 +42,10 @@ paths:
       - api
     put:
       operationId: updateViewTaxon
-      description: 'Add a new taxon_id for tracking.
+      description: 'Add a new id for tracking.
 
 
-        **taxon_id**: Taxonomic identifier (will include subtree)'
+        **id**: Taxonomic identifier (will include subtree)'
       parameters:
       - name: taxon_id
         in: path
@@ -69,15 +69,15 @@ paths:
           description: ''
       tags:
       - api
-  /api/accession/{accession_id}/:
+  /api/record/{record_id}/:
     get:
-      operationId: retrieveViewAccession
+      operationId: retrieveViewRecord
       description: 'View metadata for an ENA record.
 
 
-        **accession_id**: Record identifier'
+        **id**: Record identifier'
       parameters:
-      - name: accession_id
+      - name: record_id
         in: path
         required: true
         description: ''
@@ -92,13 +92,13 @@ paths:
       tags:
       - api
     put:
-      operationId: updateViewAccession
+      operationId: updateViewRecord
       description: 'Update metadata for an ENA record with an assembly attempt result.
 
 
-        **accession_id**: Record identifier'
+        **id**: Record identifier'
       parameters:
-      - name: accession_id
+      - name: record_id
         in: path
         required: true
         description: ''
@@ -136,15 +136,15 @@ paths:
           description: ''
       tags:
       - api
-  /api/confirm_assembly_candidate/{accession_id}/:
+  /api/confirm_assembly_candidate/{record_id}/:
     get:
       operationId: retrieveAcceptAssemblyCandidate
-      description: 'Confirm assembly will proceed on an accession_id
+      description: 'Confirm assembly will proceed on an id
 
 
-        **accession_id**: Record identifier'
+        **id**: Record identifier'
       parameters:
-      - name: accession_id
+      - name: record_id
         in: path
         required: true
         description: ''

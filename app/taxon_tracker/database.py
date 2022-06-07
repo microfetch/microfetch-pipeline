@@ -10,21 +10,20 @@ DB = None
 # The lists below are not exhaustive, they reflect items likely to be useful in the code.
 class Tables(Enum):
     TAXON = 'webserver_taxons'
-    ACCESSION = 'webserver_accessionnumbers'
+    RECORD = 'webserver_records'
     RECORD_DETAILS = 'webserver_recorddetails'
-    DROPLETS = 'webserver_droplets'
     LOGGING = 'django_db_logger_statuslog'
 
 
 class TaxonCols(Enum):
-    TAXON_ID = 'taxon_id'
+    ID = 'id'
     LAST_UPDATED = 'last_updated'
     TIME_ADDED = 'time_added'
 
 
-class AccessionCols(Enum):
-    TAXON_ID = 'taxon_id_id'  # extra _id courtesy of Django
-    ACCESSION_ID = 'accession_id'
+class RecordCols(Enum):
+    ID = 'id'
+    TAXON = 'id'
     EXPERIMENT_ACCESSION = 'experiment_accession'
     RUN_ACCESSION = 'run_accession'
     SAMPLE_ACCESSION = 'sample_accession'
@@ -36,8 +35,8 @@ class AccessionCols(Enum):
     ASSEMBLY_RESULT = 'assembly_result'
 
 
-class RecordCols(Enum):
-    ACCESSION_ID = 'accession_id_id'
+class DetailCols(Enum):
+    RECORD = 'id'
     TIME_FETCHED = 'time_fetched'
     SAMPLE_ACCESSION = 'sample_accession'
     EXPERIMENT_ACCESSION = 'experiment_accession'
@@ -47,8 +46,8 @@ class RecordCols(Enum):
 
 COLUMNS = {
     Tables.TAXON: TaxonCols,
-    Tables.ACCESSION: AccessionCols,
-    Tables.RECORD_DETAILS: RecordCols
+    Tables.RECORD: RecordCols,
+    Tables.RECORD_DETAILS: DetailCols
 }
 
 

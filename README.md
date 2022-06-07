@@ -35,11 +35,11 @@ The ENA crawler process also handles resetting expired assembly requests.
 
 Assembly programs should obey the following steps:
 1. Request a record from `GET api/request_assembly_candidate/`
-2. Accept the duty of assembling that record `GET api/confirm_assembly_candidate/{accession_id}`
+2. Accept the duty of assembling that record `GET api/confirm_assembly_candidate/{record_id}`
 3. Download the data at the `fastq_ftp` links included in the server response at step 1
 4. Attempt assembly of the genome
 5. Submit the result ('fail' or 'success') and links to a full report and the assembled genome
-   (if applicable) using `PUT api/accession/{accession_id}`
+   (if applicable) using `PUT api/record/{record_id}`
 
 The content of step 5 will be a JSON file similar to:
 
@@ -47,6 +47,9 @@ The content of step 5 will be a JSON file similar to:
 {
   "assembly_result": "success",
   "assembled_genome_url": "https://some.repository.url/some/path/genome.gtca",
-  "assembly_report_url": "https://some.repository.url/some/path/report.html"
+  "assembly_error_report_url": "https://some.repository.url/some/path/report.html", 
+  "qualifyr_report": {
+   // key-value pairs for the qualifyr report of the assembly quality
+  }
 }
 ```

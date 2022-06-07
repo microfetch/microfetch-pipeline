@@ -1,14 +1,14 @@
-from django.views.decorators.csrf import csrf_exempt
+from django.utils.datastructures import MultiValueDictKeyError
 from django.http import HttpRequest, HttpResponse, JsonResponse, Http404
 from django.urls import reverse
 from django.shortcuts import render, redirect
 from django.utils import timezone
 from django_db_logger.models import StatusLog
 import rest_framework.views
-from json import loads
+import json
 import logging
-from .models import Taxons, AccessionNumbers, RecordDetails, AssemblyStatus, QualifyrReport, name_map, qualifyr_name_map
-from .serializers import TaxonSerializer, AccessionNumberSerializer, RecordDetailSerializer
+from .models import Taxons, Records, RecordDetails, AssemblyStatus, QualifyrReport, name_map, qualifyr_name_map
+from .serializers import TaxonSerializer, RecordSerializer, RecordDetailSerializer
 
 logger = logging.getLogger(__file__)
 
@@ -75,98 +75,100 @@ class ListTaxons(rest_framework.views.APIView):
 class ViewTaxon(rest_framework.views.APIView):
     def put(self, request: HttpRequest, taxon_id: str, **kwargs) -> JsonResponse:
         """
-        Add a new taxon_id for tracking.
+        Add a new id for tracking.
 
-        **taxon_id**: Taxonomic identifier (will include subtree)
+        **id**: Taxonomic identifier (will include subtree)
         """
         try:
-            if "filters" in request.POST['filters']:
-                filters = {"filters": request.POST['filters']}
+            if "filters" in request.data.keys() and 'filters' in request.data['filters'].keys():
+                filters = {"filters": request.data['filters']}
             else:
                 filters = None
             Taxons.objects.update_or_create(
-                taxon_id=int(taxon_id),
+                id=int(taxon_id),
                 post_assembly_filters=filters
             )
             logger.info(f"Added taxon id {taxon_id} via API call")
-        except ValueError as e:
+        except (ValueError, MultiValueDictKeyError) as e:
             logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")
             return JsonResponse({'error': e}, status=400)
         return self.get(request=request, taxon_id=taxon_id, status=201, **kwargs)
 
-    def get(self, request: HttpRequest, taxon_id: str, **kwargs):
+    def get(self, request: HttpRequest, taxon_id: str, status: int = 200, **kwargs):
         """
-        View details of a taxon_id.
+        View details of a id.
 
-        **taxon_id**: Taxonomic identifier (will include subtree)
+        **id**: Taxonomic identifier (will include subtree)
         """
-        taxon = Taxons.objects.get(taxon_id=taxon_id)
-        accessions = AccessionNumbers.objects.filter(taxon_id=taxon_id)
+        taxon = Taxons.objects.get(id=taxon_id)
+        records = Records.objects.filter(taxon_id=taxon_id)
         taxon_serialized = TaxonSerializer(taxon)
-        accessions_serialized = AccessionNumberSerializer(accessions, many=True)
+        records_serialized = RecordSerializer(records, many=True)
         return JsonResponse({
             **taxon_serialized.data,
-            'accessions': accessions_serialized.data
-        }, status=kwargs['status'])
+            'records': records_serialized.data
+        }, status=status)
 
 
-class ViewAccession(rest_framework.views.APIView):
+class ViewRecord(rest_framework.views.APIView):
 
-    def _accession_details(self, accession_id: str) -> object:
+    def _record_details(self, record_id: str) -> object:
         try:
-            accession = AccessionNumbers.objects.get(accession_id=accession_id)
-            details = RecordDetails.objects.filter(accession_id=accession_id)
-        except (AccessionNumbers.DoesNotExist, RecordDetails.DoesNotExist):
+            accession = Records.objects.get(id=record_id)
+            details = RecordDetails.objects.filter(record_id=record_id)
+        except (Records.DoesNotExist, RecordDetails.DoesNotExist):
             raise Http404
         return {
-            **AccessionNumberSerializer(accession).data,
+            **RecordSerializer(accession).data,
             'details': RecordDetailSerializer(details[0]).data
         }
 
-    def get(self, request: HttpRequest, accession_id: str, **kwargs):
+    def get(self, request: HttpRequest, record_id: str, **kwargs):
         """
         View metadata for an ENA record.
 
-        **accession_id**: Record identifier
+        **id**: Record identifier
         """
-        return JsonResponse(self._accession_details(accession_id=accession_id))
+        return JsonResponse(self._record_details(record_id=record_id))
 
-    def put(self, request: HttpRequest, accession_id: str, **kwargs):
+    def put(self, request: HttpRequest, record_id: str, **kwargs):
         """
         Update metadata for an ENA record with an assembly attempt result.
 
-        **accession_id**: Record identifier
+        **id**: Record identifier
         """
         errors = []
-        data = loads(request.body)
-        if not data['assembly_result']:
+        data = request.data
+        if not 'assembly_result' in data.keys():
             errors.append('Field assembly_result must be specified.')
         elif data['assembly_result'] not in [s.value for s in AssemblyStatus]:
             errors.append(f"Unrecognised assembly_result '{data['assembly_result']}'.")
 
         try:
-            accession = AccessionNumbers.objects.get(accession_id=accession_id)
-            if accession.assembly_result != AssemblyStatus.IN_PROGRESS.value:
-                errors.append(f'Record {accession_id} is not marked for assembly.')
-        except AccessionNumbers.DoesNotExist:
-            errors.append(f"No record found with accession_id {accession_id}")
+            record = Records.objects.get(id=record_id)
+            if record.assembly_result != AssemblyStatus.IN_PROGRESS.value:
+                errors.append(f'Record {record_id} is not marked for assembly.')
+        except Records.DoesNotExist:
+            errors.append(f"No record found with id {record_id}")
 
         if len(errors) > 0:
             return JsonResponse({'error': errors}, status=400)
 
-        accession.assembly_result = data['assembly_result']
-        if data['assembled_genome_url']:
-            accession.assembled_genome_url = data['assembled_genome_url']
-        if data['assembly_error_report_url']:
-            accession.assembly_report_url = data['assembly_error_report_url']
-        accession.save()
+        record.assembly_result = data['assembly_result']
+        if 'assembled_genome_url' in data.keys():
+            record.assembled_genome_url = data['assembled_genome_url']
+        if 'assembly_error_report_url' in data.keys():
+            record.assembly_error_report_url = data['assembly_error_report_url']
+        record.save()
 
         # Map the qualifyr_report to a database entry if it exists
-        if data['qualifyr_report']:
+        if 'qualifyr_report' in data.keys() and data['qualifyr_report']:
             report = {}
-            for k, v in data['qualifyr_report']:
+            qualifyr_report = json.loads(data['qualifyr_report'])
+            for k, v in qualifyr_report.items():
                 report[name_map(k)] = v
-            QualifyrReport.objects.create(accession_id=accession.accession_id, **report)
+            logger.debug(report)
+            QualifyrReport.objects.create(record_id=record.id, **report)
 
         return HttpResponse(status=204)
 
@@ -185,7 +187,7 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
         Checking out a record in this way obliges you to attempt to assemble the genome and
         report the result using this API.
         """
-        candidates = AccessionNumbers.objects.filter(
+        candidates = Records.objects.filter(
             waiting_since__isnull=False,
             passed_filter=True,
             assembly_result__isnull=True
@@ -195,7 +197,7 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
             candidate.assembly_result = AssemblyStatus.UNDER_CONSIDERATION.value
             candidate.waiting_since = timezone.now()
             candidate.save()
-            serializer = AccessionNumberSerializer(candidate)
+            serializer = RecordSerializer(candidate)
             try:
                 filters = Taxons.objects.get(taxon_id=candidate.taxon_id_id).post_assembly_filters
             except BaseException:
@@ -204,8 +206,8 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
             return JsonResponse({
                 **serializer.data,
                 'post_assembly_filters': filters,
-                'accept_url': reverse('assembly_confirm', args=(candidate.accession_id,)),
-                'upload_url': reverse('accession', args=(candidate.accession_id,)),
+                'accept_url': reverse('assembly_confirm', args=(candidate.id,)),
+                'upload_url': reverse('record', args=(candidate.id,)),
                 'upload_fields': {
                     'assembly_result': {
                         'description': f"'{AssemblyStatus.FAIL.value}' or '{AssemblyStatus.SUCCESS.value}'.",
@@ -228,7 +230,7 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
                     }
                 },
                 'note': (
-                    "This accession number is temporarily held for you. "
+                    "This record number is temporarily held for you. "
                     "If you do not send a GET request to the accept_url "
                     "within 10 minutes, the API will assume that you do not wish "
                     "to continue assembling this record. "
@@ -245,13 +247,13 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
 
 
 class AcceptAssemblyCandidate(rest_framework.views.APIView):
-    def get(self, request: HttpRequest, accession_id: str, **kwargs) -> [JsonResponse, HttpResponse]:
+    def get(self, request: HttpRequest, record_id: str, **kwargs) -> [JsonResponse, HttpResponse]:
         """
-        Confirm assembly will proceed on an accession_id
+        Confirm assembly will proceed on an id
 
-        **accession_id**: Record identifier
+        **id**: Record identifier
         """
-        accession = AccessionNumbers.objects.get(accession_id=accession_id)
+        accession = Records.objects.get(id=record_id)
         if accession.assembly_result == AssemblyStatus.UNDER_CONSIDERATION.value:
             accession.assembly_result = AssemblyStatus.IN_PROGRESS.value
             accession.waiting_since = timezone.now()

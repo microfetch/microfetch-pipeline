@@ -15,15 +15,15 @@ class AssemblyStatus(Enum):
 
 
 class Taxons(models.Model):
-    taxon_id = models.PositiveBigIntegerField(primary_key=True)
+    id = models.PositiveBigIntegerField(primary_key=True)
     last_updated = models.DateTimeField(null=True)
     time_added = models.DateTimeField(auto_now_add=True)
     post_assembly_filters = models.JSONField(null=True)
 
 
-class AccessionNumbers(models.Model):
-    taxon_id = models.ForeignKey("Taxons", on_delete=models.DO_NOTHING)
-    accession_id = models.CharField(primary_key=True, max_length=LENGTH_MEDIUM)
+class Records(models.Model):
+    id = models.CharField(primary_key=True, max_length=LENGTH_MEDIUM)
+    taxon = models.ForeignKey("Taxons", on_delete=models.DO_NOTHING)
     accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     experiment_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     run_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
@@ -40,12 +40,11 @@ class AccessionNumbers(models.Model):
         max_length=LENGTH_ACCESSION
     )
     assembled_genome_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
-    assembly_report_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
-
+    assembly_error_report_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
 
 
 class RecordDetails(models.Model):
-    accession_id = models.ForeignKey("AccessionNumbers", on_delete=models.DO_NOTHING)
+    record = models.ForeignKey("Records", on_delete=models.DO_NOTHING)
     time_fetched = models.DateTimeField(auto_now_add=True)
     # Fields as retrieved from ENA database
     accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
@@ -243,10 +242,10 @@ qualifyr_name_map = {
 
 def name_map(s: str, to_python: bool = True) -> str:
     if to_python:
-        for k in qualifyr_name_map.keys():
-            if qualifyr_name_map[k] == s:
+        for k, v in qualifyr_name_map.items():
+            if v == s:
                 return k
-            raise ValueError(f"Unknown assembler field: '{s}'.")
+        raise ValueError(f"Unknown assembler field: '{s}'.")
     else:
         if s in qualifyr_name_map.keys():
             return qualifyr_name_map[s]
@@ -254,7 +253,7 @@ def name_map(s: str, to_python: bool = True) -> str:
 
 
 class QualifyrReport(models.Model):
-    accession = models.ForeignKey("AccessionNumbers", on_delete=models.DO_NOTHING)
+    record = models.ForeignKey("Records", on_delete=models.DO_NOTHING)
 
     sample_name = models.CharField(max_length=LENGTH_SHORT, null=True)
     result = models.CharField(max_length=LENGTH_SHORT, null=True)

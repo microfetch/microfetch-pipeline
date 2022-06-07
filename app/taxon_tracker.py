@@ -41,9 +41,9 @@ def rate_limit(list_like: list, fun: Callable, rate: int) -> any:
 
 
 def get_taxons_to_check() -> pandas.DataFrame:
-    taxon_id = COLUMNS[Tables.TAXON].TAXON_ID.value
+    taxon_id = COLUMNS[Tables.TAXON].ID.value
     last_updated = COLUMNS[Tables.TAXON].LAST_UPDATED.value
-    # Fetch accessions for outdated taxon_ids
+    # Fetch records for outdated taxon_ids
     with get_engine().connect() as conn:
         df = pandas.read_sql(
             sql=sqlalchemy.text((
@@ -63,11 +63,11 @@ def update_taxons(taxon_ids: pandas.DataFrame) -> None:
         logger.debug("No taxon ids need checking.")
         return
 
-    t_id = COLUMNS[Tables.TAXON].TAXON_ID.value
+    t_id = COLUMNS[Tables.TAXON].ID.value
     last_updated = COLUMNS[Tables.TAXON].LAST_UPDATED.value
     for taxon_id in taxon_ids.taxon_id:
         update_records(taxon_id)
-        # mark taxon_id as updated
+        # mark id as updated
         with Session(get_engine()) as session:
             session.execute(sqlalchemy.text((
                 f"UPDATE {Tables.TAXON.value} SET {last_updated}=NOW() WHERE {t_id}={taxon_id}"
@@ -77,22 +77,22 @@ def update_taxons(taxon_ids: pandas.DataFrame) -> None:
 
 def update_records(taxon_id: int) -> None:
     logger.info(f"Updating records for taxon id {taxon_id}.")
-    # Query ENA for all accession numbers
+    # Query ENA for all record numbers
     query_ENA(taxon_id)
 
     # Filter new records for suitability
-    filter_accession_numbers()
+    filter_records()
 
 
-def query_ENA(taxon_id: int, all_accessions=None) -> None:
-    logger.info(f"Fetching ENA accession numbers for taxon id {taxon_id}.")
-    accessions = None
+def query_ENA(taxon_id: int) -> None:
+    logger.info(f"Fetching ENA record numbers for taxon id {taxon_id}.")
+    records = None
     offset = 0
     limit = Settings.ENA_REQUEST_LIMIT.value
     while True:
         url = (
             f"https://www.ebi.ac.uk/ena/portal/api/links/taxon?"
-            f"accession={taxon_id}"
+            f"record={taxon_id}"
             f"&format=json"
             f"&limit={limit}"
             f"&offset={offset}"
@@ -112,45 +112,45 @@ def query_ENA(taxon_id: int, all_accessions=None) -> None:
 
         if type(df) is not pandas.DataFrame:
             break
-        if accessions is None:
-            accessions = df
+        if records is None:
+            records = df
         else:
-            accessions = pandas.concat([df, accessions], ignore_index=True)
+            records = pandas.concat([df, records], ignore_index=True)
 
         if len(df) >= limit:
             offset = offset + limit
         else:
             break
 
-    logger.debug(f"Found {len(accessions)} accession numbers for taxon_id {taxon_id}.")
+    logger.debug(f"Found {len(records)} record numbers for taxon_id {taxon_id}.")
 
-    t_id = COLUMNS[Tables.ACCESSION].TAXON_ID.value
-    run_accession = COLUMNS[Tables.ACCESSION].RUN_ACCESSION.value
+    t_id = COLUMNS[Tables.RECORD].ID.value
+    run_accession = COLUMNS[Tables.RECORD].RUN_ACCESSION.value
 
     with get_engine().connect() as conn:
         existing_records = pandas.read_sql(sqlalchemy.text((
-            f"SELECT {run_accession} FROM {Tables.ACCESSION.value} WHERE {t_id} = {taxon_id}"
+            f"SELECT {run_accession} FROM {Tables.RECORD.value} WHERE {t_id} = {taxon_id}"
         )), con=conn)
 
-    missing = accessions.loc[~accessions[run_accession].isin(existing_records[run_accession])]
+    missing = records.loc[~records[run_accession].isin(existing_records[run_accession])]
 
-    logger.info(f"{len(existing_records)}/{len(accessions)} ENA records exist locally.")
+    logger.info(f"{len(existing_records)}/{len(records)} ENA records exist locally.")
 
     # Fetch records if they don't already exist.
     if len(missing) > 0:
         fetch_ENA_records(missing, taxon_id)
 
 
-def fetch_ENA_records(accessions: pandas.DataFrame, taxon_id: int) -> None:
-    logger.info(f"Fetching records for {len(accessions)} accessions.")
+def fetch_ENA_records(records: pandas.DataFrame, taxon_id: int) -> None:
+    logger.info(f"Fetching records for {len(records)} records.")
     limit = Settings.ENA_REQUEST_LIMIT.value
     response_limit = 0
     successes = []
-    for i in range(math.ceil(len(accessions) / limit)):
-        ans = accessions.iloc[i * limit:(i + 1) * limit]
+    for i in range(math.ceil(len(records) / limit)):
+        ans = records.iloc[i * limit:(i + 1) * limit]
         url = "https://www.ebi.ac.uk/ena/portal/api/search"
         data = {
-            'includeAccessions': f"{','.join(ans[COLUMNS[Tables.ACCESSION].RUN_ACCESSION.value])}",
+            'includeAccessions': f"{','.join(ans[COLUMNS[Tables.RECORD].RUN_ACCESSION.value])}",
             'result': 'read_run',
             'format': 'json',
             'limit': response_limit,
@@ -174,20 +174,20 @@ def fetch_ENA_records(accessions: pandas.DataFrame, taxon_id: int) -> None:
                     continue
 
                 # Tidy up a couple of columns
-                accession_ids = []
+                record_ids = []
                 for r in range(len(records)):
                     row = records.iloc[r].to_dict()
-                    accession_ids.append((
+                    record_ids.append((
                         f"{row[COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value]}_"
                         f"{row[COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value]}_"
                         f"{row[COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value]}"
                     ))
-                records[COLUMNS[Tables.RECORD_DETAILS].ACCESSION_ID.value] = accession_ids
+                records[COLUMNS[Tables.RECORD_DETAILS].ID.value] = record_ids
                 records[COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
 
                 # Slim table for saving space
                 slim_records = records.filter(items=[
-                    COLUMNS[Tables.RECORD_DETAILS].ACCESSION_ID.value,
+                    COLUMNS[Tables.RECORD_DETAILS].ID.value,
                     COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value,
@@ -196,20 +196,20 @@ def fetch_ENA_records(accessions: pandas.DataFrame, taxon_id: int) -> None:
                 ])
                 slim_records = slim_records.copy()
                 slim_records = slim_records.rename(columns={
-                    COLUMNS[Tables.RECORD_DETAILS].ACCESSION_ID.value:
-                        COLUMNS[Tables.ACCESSION].ACCESSION_ID.value,
+                    COLUMNS[Tables.RECORD_DETAILS].ID.value:
+                        COLUMNS[Tables.RECORD].ID.value,
                     COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value:
-                        COLUMNS[Tables.ACCESSION].SAMPLE_ACCESSION.value,
+                        COLUMNS[Tables.RECORD].SAMPLE_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value:
-                        COLUMNS[Tables.ACCESSION].RUN_ACCESSION.value,
+                        COLUMNS[Tables.RECORD].RUN_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value:
-                        COLUMNS[Tables.ACCESSION].EXPERIMENT_ACCESSION.value,
+                        COLUMNS[Tables.RECORD].EXPERIMENT_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value:
-                        COLUMNS[Tables.ACCESSION].TIME_FETCHED.value,
+                        COLUMNS[Tables.RECORD].TIME_FETCHED.value,
                     COLUMNS[Tables.RECORD_DETAILS].FASTQ_FTP.value:
-                        COLUMNS[Tables.ACCESSION].FASTQ_FTP.value
+                        COLUMNS[Tables.RECORD].FASTQ_FTP.value
                 })
-                slim_records[COLUMNS[Tables.ACCESSION].TAXON_ID.value] = taxon_id
+                slim_records[COLUMNS[Tables.RECORD].ID.value] = taxon_id
 
                 with get_engine().connect() as conn:
                     records.to_sql(
@@ -219,7 +219,7 @@ def fetch_ENA_records(accessions: pandas.DataFrame, taxon_id: int) -> None:
                         index=False
                     )
                     slim_records.to_sql(
-                        name=Tables.ACCESSION.value,
+                        name=Tables.RECORD.value,
                         con=conn,
                         if_exists='append',
                         index=False
@@ -233,31 +233,31 @@ def fetch_ENA_records(accessions: pandas.DataFrame, taxon_id: int) -> None:
                     f"Error saving ENA record details. They will be retrieved later. Error: {e}"
                 ))
 
-    logger.info(f"Fetched {len(successes)}/{len(accessions)} record details.")
+    logger.info(f"Fetched {len(successes)}/{len(records)} record details.")
 
 
-def filter_accession_numbers() -> None:
+def filter_records() -> None:
     """
-    Fetch records for any accession numbers without a passed_filter decision and apply filters.
+    Fetch records for any record numbers without a passed_filter decision and apply filters.
     """
-    accession = COLUMNS[Tables.ACCESSION].ACCESSION_ID.value
-    accession_fk = COLUMNS[Tables.RECORD_DETAILS].ACCESSION_ID.value
-    passed_filter = COLUMNS[Tables.ACCESSION].PASSED_FILTER.value
-    filter_failed = COLUMNS[Tables.ACCESSION].FILTER_FAILED.value
-    waiting_since = COLUMNS[Tables.ACCESSION].WAITING_SINCE.value
+    record = COLUMNS[Tables.RECORD].ID.value
+    accession_fk = COLUMNS[Tables.RECORD_DETAILS].ID.value
+    passed_filter = COLUMNS[Tables.RECORD].PASSED_FILTER.value
+    filter_failed = COLUMNS[Tables.RECORD].FILTER_FAILED.value
+    waiting_since = COLUMNS[Tables.RECORD].WAITING_SINCE.value
     with get_engine().connect() as conn:
-        accessions = pandas.read_sql(
+        records = pandas.read_sql(
             sql=sqlalchemy.text((
-                f"SELECT {accession}, {passed_filter} FROM {Tables.ACCESSION.value} WHERE "
+                f"SELECT {record}, {passed_filter} FROM {Tables.RECORD.value} WHERE "
                 f"{passed_filter} IS NULL"
             )),
             con=conn
         )
 
-    if len(accessions) == 0:
+    if len(records) == 0:
         return
     else:
-        logger.info(f"Found {len(accessions)} records awaiting filtering.")
+        logger.info(f"Found {len(records)} records awaiting filtering.")
 
     # Check records against filters
     with get_engine().connect() as conn:
@@ -265,7 +265,7 @@ def filter_accession_numbers() -> None:
             sql=sqlalchemy.text((
                 f"SELECT * FROM {Tables.RECORD_DETAILS.value} WHERE "
                 f"{accession_fk} IN "
-                f"{tuple(accessions[accession])}"
+                f"{tuple(records[record])}"
             )),
             con=conn
         )
@@ -273,23 +273,23 @@ def filter_accession_numbers() -> None:
     filters.apply_filters(records=records, col_name_passed=passed_filter, col_name_failed=filter_failed)
 
     # Save results
-    # rename accession number
-    new_accessions = records[[accession_fk, passed_filter, filter_failed]]
+    # rename record number
+    new_records = records[[accession_fk, passed_filter, filter_failed]]
     with Session(get_engine()) as session:
         session.execute(
             sqlalchemy.text((
-                f"UPDATE {Tables.ACCESSION.value} "
+                f"UPDATE {Tables.RECORD.value} "
                 f"SET "
-                f"{accession}=:an, {passed_filter}=:fltr, {filter_failed}=:fail, {waiting_since} = NOW() "
-                f"WHERE {accession}=:an"
+                f"{record}=:an, {passed_filter}=:fltr, {filter_failed}=:fail, {waiting_since} = NOW() "
+                f"WHERE {record}=:an"
             )),
-            [{'an': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_accessions.itertuples(index=False)]
+            [{'an': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_records.itertuples(index=False)]
         )
         session.commit()
         # Let the api know the records are waiting
         session.execute(
             sqlalchemy.text((
-                f"UPDATE {Tables.ACCESSION.value} "
+                f"UPDATE {Tables.RECORD.value} "
                 f"SET {waiting_since} = NOW() "
                 f" WHERE {passed_filter} = True AND {waiting_since} IS NULL"
             ))
@@ -300,34 +300,40 @@ def filter_accession_numbers() -> None:
         logger.info(f"{len(records.loc[records[passed_filter]])}/{len(records)} new records acceptable for assembly.")
 
 
-def release_accessions() -> None:
+def release_records() -> None:
     """
-    When the web API is called up to request a new accession record to assemble the
-    accession is marked as 'under consideration'.
-    The requester should confirm their request within 10 minutes, otherwise the accession will
-    be made available to other requesters for assembly.
-    This function resets the stale accessions to make them available again.
+    When the web API is called up to request a new record record to assemble the
+    record is marked as 'under consideration'.
+    The requester should confirm their request within the time specified in the CONSIDERATION_PERIOD envvars,
+    otherwise the record will be made available to other requesters for assembly.
+    This function resets the stale records to make them available again.
 
-    Additionally, any accessions whose assembly results have not been reported 7 after
-    7 days are marked as available again.
+    Additionally, any records whose assembly results have not been reported after
+    the time specified in the ASSEMBLY_PERIOD envvars are marked as available again.
     """
     with Session(get_engine()) as session:
         session.execute(
             sqlalchemy.text((
-                f"UPDATE {Tables.ACCESSION.value} "
-                f"SET {COLUMNS[Tables.ACCESSION].ASSEMBLY_RESULT.value} = NULL, "
-                f"{COLUMNS[Tables.ACCESSION].WAITING_SINCE.value} = NOW() "
-                f"WHERE {COLUMNS[Tables.ACCESSION].ASSEMBLY_RESULT.value} = 'under consideration' "
-                f"AND date_part('minutes', NOW() - {COLUMNS[Tables.ACCESSION].WAITING_SINCE.value}) >= 10"
+                f"UPDATE {Tables.RECORD.value} "
+                f"SET {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = NULL, "
+                f"{COLUMNS[Tables.RECORD].WAITING_SINCE.value} = NOW() "
+                f"WHERE {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = 'under consideration' "
+                f"AND date_part("
+                f"  '{Settings.CONSIDERATION_PERIOD_UNITS.value}', "
+                f"  NOW() - {COLUMNS[Tables.RECORD].WAITING_SINCE.value}"
+                f") >= {Settings.CONSIDERATION_PERIOD_N.value}"
             ))
         )
         session.execute(
             sqlalchemy.text((
-                f"UPDATE {Tables.ACCESSION.value} "
-                f"SET {COLUMNS[Tables.ACCESSION].ASSEMBLY_RESULT.value} = NULL, "
-                f"{COLUMNS[Tables.ACCESSION].WAITING_SINCE.value} = NOW() "
-                f"WHERE {COLUMNS[Tables.ACCESSION].ASSEMBLY_RESULT.value} = 'in progress' "
-                f"AND date_part('days', NOW() - {COLUMNS[Tables.ACCESSION].WAITING_SINCE.value}) >= 7"
+                f"UPDATE {Tables.RECORD.value} "
+                f"SET {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = NULL, "
+                f"{COLUMNS[Tables.RECORD].WAITING_SINCE.value} = NOW() "
+                f"WHERE {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = 'in progress' "
+                f"AND date_part("
+                f"  '{Settings.ASSEMBLY_PERIOD_UNITS.value}', "
+                f"  NOW() - {COLUMNS[Tables.RECORD].WAITING_SINCE.value}"
+                f") >= {Settings.ASSEMBLY_PERIOD_N.value}"
             ))
         )
         session.commit()
@@ -343,8 +349,8 @@ if __name__ == '__main__':
             taxon_ids = get_taxons_to_check()
             update_taxons(taxon_ids)
 
-            # Release accessions that were requested but not acknowledged
-            release_accessions()
+            # Release records that were requested but not acknowledged
+            release_records()
 
         except BaseException as e:
             logger.error(e)

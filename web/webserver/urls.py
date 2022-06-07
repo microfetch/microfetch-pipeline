@@ -21,10 +21,10 @@ urlpatterns = [
 
     path('api/taxons/', views.ListTaxons.as_view(), name='taxons'),
     path('api/taxon/<str:taxon_id>/', views.ViewTaxon.as_view(), name='taxon'),
-    path('api/accession/<str:accession_id>/', views.ViewAccession.as_view(), name='accession'),
+    path('api/record/<str:record_id>/', views.ViewRecord.as_view(), name='record'),
     path('api/request_assembly_candidate/', views.RequestAssemblyCandidate.as_view(), name='assembly_request'),
     path(
-        'api/confirm_assembly_candidate/<str:accession_id>/',
+        'api/confirm_assembly_candidate/<str:record_id>/',
         views.AcceptAssemblyCandidate.as_view(),
         name='assembly_confirm'
     ),

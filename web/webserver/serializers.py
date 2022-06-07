@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Taxons, AccessionNumbers, RecordDetails
+from .models import Taxons, Records, RecordDetails
 
 import logging
 
@@ -12,9 +12,9 @@ class TaxonSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class AccessionNumberSerializer(serializers.ModelSerializer):
+class RecordSerializer(serializers.ModelSerializer):
     class Meta:
-        model = AccessionNumbers
+        model = Records
         fields = '__all__'
 
 

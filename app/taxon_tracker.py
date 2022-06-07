@@ -65,7 +65,7 @@ def update_taxons(taxon_ids: pandas.DataFrame) -> None:
 
     t_id = COLUMNS[Tables.TAXON].ID.value
     last_updated = COLUMNS[Tables.TAXON].LAST_UPDATED.value
-    for taxon_id in taxon_ids.taxon_id:
+    for taxon_id in taxon_ids[t_id]:
         update_records(taxon_id)
         # mark id as updated
         with Session(get_engine()) as session:
@@ -92,7 +92,7 @@ def query_ENA(taxon_id: int) -> None:
     while True:
         url = (
             f"https://www.ebi.ac.uk/ena/portal/api/links/taxon?"
-            f"record={taxon_id}"
+            f"accession={taxon_id}"
             f"&format=json"
             f"&limit={limit}"
             f"&offset={offset}"
@@ -124,7 +124,7 @@ def query_ENA(taxon_id: int) -> None:
 
     logger.debug(f"Found {len(records)} record numbers for taxon_id {taxon_id}.")
 
-    t_id = COLUMNS[Tables.RECORD].ID.value
+    t_id = COLUMNS[Tables.RECORD].TAXON.value
     run_accession = COLUMNS[Tables.RECORD].RUN_ACCESSION.value
 
     with get_engine().connect() as conn:
@@ -182,12 +182,12 @@ def fetch_ENA_records(records: pandas.DataFrame, taxon_id: int) -> None:
                         f"{row[COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value]}_"
                         f"{row[COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value]}"
                     ))
-                records[COLUMNS[Tables.RECORD_DETAILS].ID.value] = record_ids
+                records[COLUMNS[Tables.RECORD_DETAILS].RECORD.value] = record_ids
                 records[COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
 
                 # Slim table for saving space
                 slim_records = records.filter(items=[
-                    COLUMNS[Tables.RECORD_DETAILS].ID.value,
+                    COLUMNS[Tables.RECORD_DETAILS].RECORD.value,
                     COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value,
                     COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value,
@@ -196,7 +196,7 @@ def fetch_ENA_records(records: pandas.DataFrame, taxon_id: int) -> None:
                 ])
                 slim_records = slim_records.copy()
                 slim_records = slim_records.rename(columns={
-                    COLUMNS[Tables.RECORD_DETAILS].ID.value:
+                    COLUMNS[Tables.RECORD_DETAILS].RECORD.value:
                         COLUMNS[Tables.RECORD].ID.value,
                     COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value:
                         COLUMNS[Tables.RECORD].SAMPLE_ACCESSION.value,
@@ -209,7 +209,7 @@ def fetch_ENA_records(records: pandas.DataFrame, taxon_id: int) -> None:
                     COLUMNS[Tables.RECORD_DETAILS].FASTQ_FTP.value:
                         COLUMNS[Tables.RECORD].FASTQ_FTP.value
                 })
-                slim_records[COLUMNS[Tables.RECORD].ID.value] = taxon_id
+                slim_records[COLUMNS[Tables.RECORD].TAXON.value] = taxon_id
 
                 with get_engine().connect() as conn:
                     records.to_sql(
@@ -241,7 +241,7 @@ def filter_records() -> None:
     Fetch records for any record numbers without a passed_filter decision and apply filters.
     """
     record = COLUMNS[Tables.RECORD].ID.value
-    accession_fk = COLUMNS[Tables.RECORD_DETAILS].ID.value
+    r_id = COLUMNS[Tables.RECORD_DETAILS].RECORD.value
     passed_filter = COLUMNS[Tables.RECORD].PASSED_FILTER.value
     filter_failed = COLUMNS[Tables.RECORD].FILTER_FAILED.value
     waiting_since = COLUMNS[Tables.RECORD].WAITING_SINCE.value
@@ -264,7 +264,7 @@ def filter_records() -> None:
         records = pandas.read_sql(
             sql=sqlalchemy.text((
                 f"SELECT * FROM {Tables.RECORD_DETAILS.value} WHERE "
-                f"{accession_fk} IN "
+                f"{r_id} IN "
                 f"{tuple(records[record])}"
             )),
             con=conn
@@ -274,7 +274,7 @@ def filter_records() -> None:
 
     # Save results
     # rename record number
-    new_records = records[[accession_fk, passed_filter, filter_failed]]
+    new_records = records[[r_id, passed_filter, filter_failed]]
     with Session(get_engine()) as session:
         session.execute(
             sqlalchemy.text((

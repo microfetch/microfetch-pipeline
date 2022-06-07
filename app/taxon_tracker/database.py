@@ -23,7 +23,7 @@ class TaxonCols(Enum):
 
 class RecordCols(Enum):
     ID = 'id'
-    TAXON = 'id'
+    TAXON = 'taxon_id'
     EXPERIMENT_ACCESSION = 'experiment_accession'
     RUN_ACCESSION = 'run_accession'
     SAMPLE_ACCESSION = 'sample_accession'
@@ -36,7 +36,7 @@ class RecordCols(Enum):
 
 
 class DetailCols(Enum):
-    RECORD = 'id'
+    RECORD = 'record_id'
     TIME_FETCHED = 'time_fetched'
     SAMPLE_ACCESSION = 'sample_accession'
     EXPERIMENT_ACCESSION = 'experiment_accession'

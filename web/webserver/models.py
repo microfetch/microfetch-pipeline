@@ -39,13 +39,20 @@ class Records(models.Model):
         null=True,
         max_length=LENGTH_ACCESSION
     )
+    passed_screening = models.BooleanField(null=True)
+    screening_message = models.CharField(null=True, max_length=LENGTH_LONG)
     assembled_genome_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     assembly_error_report_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    assembly_error_process = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    assembly_error_exit_code = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    assembly_error_stdout = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    assembly_error_stderr = models.CharField(null=True, max_length=LENGTH_MEDIUM)
 
 
 class RecordDetails(models.Model):
     record = models.ForeignKey("Records", on_delete=models.DO_NOTHING)
     time_fetched = models.DateTimeField(auto_now_add=True)
+    lat_lon_interpolated = models.BooleanField(default=False)
     # Fields as retrieved from ENA database
     accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     altitude = models.CharField(null=True, max_length=LENGTH_MEDIUM)

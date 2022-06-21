@@ -17,7 +17,7 @@ class ValidationError(BaseException):
     pass
 
 
-LOG_LEVEL_NAMES={
+LOG_LEVEL_NAMES = {
     logging.NOTSET: 'NotSet',
     logging.DEBUG: 'Debug',
     logging.INFO: 'Info',
@@ -80,19 +80,19 @@ class ViewTaxon(rest_framework.views.APIView):
         **id**: Taxonomic identifier (will include subtree)
         """
         try:
-            if "filters" in request.data.keys() and 'filters' in request.data['filters'].keys():
-                filters = {"filters": request.data['filters']}
+            if "filters" in request.data.keys():
+                filters = request.data['filters']
             else:
                 filters = None
-            Taxons.objects.update_or_create(
+            _, created = Taxons.objects.update_or_create(
                 id=int(taxon_id),
-                post_assembly_filters=filters
+                defaults={'post_assembly_filters': filters}
             )
-            logger.info(f"Added taxon id {taxon_id} via API call")
+            logger.info(f"{'Added' if created else 'Updated'} taxon id {taxon_id} via API call")
         except (ValueError, MultiValueDictKeyError) as e:
             logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")
             return JsonResponse({'error': e}, status=400)
-        return self.get(request=request, taxon_id=taxon_id, status=201, **kwargs)
+        return self.get(request=request, taxon_id=taxon_id, status=201 if created else 200, **kwargs)
 
     def get(self, request: HttpRequest, taxon_id: str, status: int = 200, **kwargs):
         """
@@ -139,7 +139,7 @@ class ViewRecord(rest_framework.views.APIView):
         """
         errors = []
         data = request.data
-        if not 'assembly_result' in data.keys():
+        if 'assembly_result' not in data.keys():
             errors.append('Field assembly_result must be specified.')
         elif data['assembly_result'] not in [s.value for s in AssemblyStatus]:
             errors.append(f"Unrecognised assembly_result '{data['assembly_result']}'.")
@@ -159,6 +159,14 @@ class ViewRecord(rest_framework.views.APIView):
             record.assembled_genome_url = data['assembled_genome_url']
         if 'assembly_error_report_url' in data.keys():
             record.assembly_error_report_url = data['assembly_error_report_url']
+        if 'assembly_error_process' in data.keys():
+            record.assembly_error_process = data['assembly_error_process']
+        if 'assembly_error_exit_code' in data.keys():
+            record.assembly_error_exit_code = data['assembly_error_exit_code']
+        if 'assembly_error_stdout' in data.keys():
+            record.assembly_error_stdout = data['assembly_error_stdout']
+        if 'assembly_error_stderr' in data.keys():
+            record.assembly_error_stderr = data['assembly_error_stderr']
         record.save()
 
         # Map the qualifyr_report to a database entry if it exists
@@ -199,7 +207,7 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
             candidate.save()
             serializer = RecordSerializer(candidate)
             try:
-                filters = Taxons.objects.get(taxon_id=candidate.taxon_id_id).post_assembly_filters
+                filters = Taxons.objects.get(id=candidate.taxon_id).post_assembly_filters
             except BaseException:
                 filters = None
 
@@ -219,6 +227,22 @@ class RequestAssemblyCandidate(rest_framework.views.APIView):
                     },
                     'assembly_error_report_url': {
                         'description': "URL of the nextflow pipeline error log for failed runs.",
+                        'required': False
+                    },
+                    'assembly_error_process': {
+                        'description': "Name (and tag) of failing pipeline process.",
+                        'required': False
+                    },
+                    'assembly_error_exit_code': {
+                        'description': "Error code of the failing process.",
+                        'required': False
+                    },
+                    'assembly_error_stdout': {
+                        'description': "Output of the failing process.",
+                        'required': False
+                    },
+                    'assembly_error_stderr': {
+                        'description': "Error report from the failing process.",
                         'required': False
                     },
                     'qualifyr_report': {

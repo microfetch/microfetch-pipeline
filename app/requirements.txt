@@ -6,7 +6,6 @@ sqlalchemy==1.4.36
 retry==0.9.2
 requests==2.27.1
 ena_utils==0.2.1
-mapbox==0.18.0
 # Digital Ocean
 python-digitalocean==1.17.0
 

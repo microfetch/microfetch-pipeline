@@ -8,7 +8,8 @@ LENGTH_LONG = 4096
 
 
 class AssemblyStatus(Enum):
-    UNDER_CONSIDERATION = 'under consideration'
+    SKIPPED = 'skipped'
+    WAITING = 'waiting'
     IN_PROGRESS = 'in progress'
     FAIL = 'fail'
     SUCCESS = 'success'
@@ -23,7 +24,7 @@ class Taxons(models.Model):
 
 class Records(models.Model):
     id = models.CharField(primary_key=True, max_length=LENGTH_MEDIUM)
-    taxon = models.ForeignKey("Taxons", on_delete=models.DO_NOTHING)
+    taxon = models.ForeignKey("Taxons", related_name="records", on_delete=models.DO_NOTHING)
     accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     experiment_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
     run_accession = models.CharField(null=True, max_length=LENGTH_ACCESSION)
@@ -36,7 +37,7 @@ class Records(models.Model):
     waiting_since = models.DateTimeField(null=True)
     assembly_result = models.CharField(
         choices=[(s.value, s.value) for s in AssemblyStatus],
-        null=True,
+        default=AssemblyStatus.WAITING.value,
         max_length=LENGTH_ACCESSION
     )
     passed_screening = models.BooleanField(null=True)
@@ -50,7 +51,7 @@ class Records(models.Model):
 
 
 class RecordDetails(models.Model):
-    record = models.ForeignKey("Records", on_delete=models.DO_NOTHING)
+    record = models.OneToOneField("Records", related_name='details', on_delete=models.DO_NOTHING)
     time_fetched = models.DateTimeField(auto_now_add=True)
     lat_lon_interpolated = models.BooleanField(default=False)
     # Fields as retrieved from ENA database
@@ -322,3 +323,7 @@ class QualifyrReport(models.Model):
     quast_Total_length_check_result = models.CharField(max_length=LENGTH_SHORT, null=True)
 
 
+class CountryCoordinates(models.Model):
+    country = models.CharField(primary_key=True, max_length=LENGTH_MEDIUM)
+    latitude = models.FloatField(null=True)
+    longitude = models.FloatField(null=True)

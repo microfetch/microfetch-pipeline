@@ -8,10 +8,19 @@ DB = None
 
 # Columns and tables are defined in web/webserver/models.py
 # The lists below are not exhaustive, they reflect items likely to be useful in the code.
+class AssemblyStatus(Enum):
+    SKIPPED = 'skipped'
+    WAITING = 'waiting'
+    IN_PROGRESS = 'in progress'
+    FAIL = 'fail'
+    SUCCESS = 'success'
+
+
 class Tables(Enum):
     TAXON = 'webserver_taxons'
     RECORD = 'webserver_records'
     RECORD_DETAILS = 'webserver_recorddetails'
+    COUNTRY_COORDINATES = 'webserver_countrycoordinates'
     LOGGING = 'django_db_logger_statuslog'
 
 
@@ -42,12 +51,23 @@ class DetailCols(Enum):
     EXPERIMENT_ACCESSION = 'experiment_accession'
     RUN_ACCESSION = 'run_accession'
     FASTQ_FTP = 'fastq_ftp'
+    COUNTRY = 'country'
+    LATITUDE = 'lat'
+    LONGITUDE = 'lon'
+    LAT_LON_INTERPOLATED = 'lat_lon_interpolated'
+
+
+class CountryCols(Enum):
+    COUNTRY = 'country'
+    LATITUDE = 'latitude'
+    LONGITUDE = 'longitude'
 
 
 COLUMNS = {
     Tables.TAXON: TaxonCols,
     Tables.RECORD: RecordCols,
-    Tables.RECORD_DETAILS: DetailCols
+    Tables.RECORD_DETAILS: DetailCols,
+    Tables.COUNTRY_COORDINATES: CountryCols
 }
 
 

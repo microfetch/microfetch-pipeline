@@ -1,10 +1,19 @@
 from django.views.generic import TemplateView
 from rest_framework.schemas import get_schema_view
 from django.urls import path
+from rest_framework.routers import DefaultRouter
 from . import views
 
+import logging
+
+logger = logging.getLogger(__file__)
+
+router = DefaultRouter()
+router.register(r'records', views.RecordViewSet, basename='record')
+router.register(r'taxons', views.TaxonViewSet, basename='taxon')
 
 urlpatterns = [
+    *router.urls,
     path('healthcheck/', views.healthcheck),
     path('swagger-ui/', TemplateView.as_view(
         template_name='swagger-ui.html',
@@ -19,14 +28,7 @@ urlpatterns = [
     path('post/', views.post),
     path('', views.index, name='index'),
 
-    path('api/taxons/', views.ListTaxons.as_view(), name='taxons'),
-    path('api/taxon/<str:taxon_id>/', views.ViewTaxon.as_view(), name='taxon'),
-    path('api/record/<str:record_id>/', views.ViewRecord.as_view(), name='record'),
-    path('api/request_assembly_candidate/', views.RequestAssemblyCandidate.as_view(), name='assembly_request'),
-    path(
-        'api/confirm_assembly_candidate/<str:record_id>/',
-        views.AcceptAssemblyCandidate.as_view(),
-        name='assembly_confirm'
-    ),
-    path('api/qualifyr_report_fields/', views.QualifyrReportFields.as_view(), name='qualifyr_report_fields')
+    path('qualifyr_report_fields/', views.QualifyrReportFields.as_view(), name='qualifyr_report_fields')
 ]
+
+logger.debug('URL patterns:\n' + '\n'.join([f"{str(u.pattern)} [{u.name}]" for u in urlpatterns]))

@@ -4,6 +4,7 @@ import datetime
 import math
 import pytz
 import sqlalchemy
+import os
 
 from typing import Callable
 from sqlalchemy.orm import Session
@@ -13,17 +14,20 @@ from requests import request
 from taxon_tracker import filters
 from taxon_tracker.settings import Settings
 from taxon_tracker.logging import DatabaseHandler, stream_handler, log_format
-from taxon_tracker.database import Tables, COLUMNS, get_engine
+from taxon_tracker.database import Tables, COLUMNS, get_engine, AssemblyStatus
 
 
-logger = logging.getLogger(__file__)
+logger: [logging.Logger] = logging.getLogger(__file__)
 stream_handler.setFormatter(log_format)
 logger.addHandler(stream_handler)
 logger.addHandler(DatabaseHandler())
 logger.setLevel(logging.DEBUG)
 
+MAPBOX_KEY = os.environ.get('MAPBOX_KEY')
+MAPBOX_URL = 'https://api.mapbox.com/geocoding/v5/mapbox.places-permanent/'
 
-class ENA_Error(BaseException):
+
+class ENAError(BaseException):
     pass
 
 
@@ -106,7 +110,7 @@ def query_ENA(taxon_id: int) -> None:
             # Undocumented, but ENA sends 204 when asking for out-of-range results
             break
         if result.status_code != 200:
-            raise ENA_Error(result.text)
+            raise ENAError(result.text)
 
         df = pandas.read_json(result.text)
 
@@ -183,6 +187,7 @@ def fetch_ENA_records(records: pandas.DataFrame, taxon_id: int) -> None:
                         f"{row[COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value]}"
                     ))
                 records[COLUMNS[Tables.RECORD_DETAILS].RECORD.value] = record_ids
+                records = mapbox_country_lookup(records)
                 records[COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
 
                 # Slim table for saving space
@@ -210,6 +215,7 @@ def fetch_ENA_records(records: pandas.DataFrame, taxon_id: int) -> None:
                         COLUMNS[Tables.RECORD].FASTQ_FTP.value
                 })
                 slim_records[COLUMNS[Tables.RECORD].TAXON.value] = taxon_id
+                slim_records[COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value] = AssemblyStatus.WAITING.value
 
                 with get_engine().connect() as conn:
                     records.to_sql(
@@ -234,6 +240,95 @@ def fetch_ENA_records(records: pandas.DataFrame, taxon_id: int) -> None:
                 ))
 
     logger.info(f"Fetched {len(successes)}/{len(records)} record details.")
+
+
+def mapbox_country_lookup(df: pandas.DataFrame) -> pandas.DataFrame:
+    """
+    Insert lat/lon estimations for records by consulting Mapbox if necessary.
+    """
+    # Select entries with no lat or lon but with country
+    logger.debug('Mapbox lookup')
+    df[COLUMNS[Tables.RECORD_DETAILS].LAT_LON_INTERPOLATED.value] = False
+
+    subset = df.loc[
+        (df[COLUMNS[Tables.RECORD_DETAILS].LATITUDE.value].isna() |
+         df[COLUMNS[Tables.RECORD_DETAILS].LONGITUDE.value].isna()) &
+        df[COLUMNS[Tables.RECORD_DETAILS].COUNTRY.value].notna(), ]
+    logger.debug(f"{len(subset)} rows require interpolation")
+
+    # Load country -> lat/lon mappings from database
+    logger.debug('Loading Mapbox cache from database')
+    with get_engine().connect() as conn:
+        mapbox_lookup_table = pandas.read_sql(
+            sql=sqlalchemy.text(f"SELECT * FROM {Tables.COUNTRY_COORDINATES.value}"),
+            con=conn
+        )
+    logger.debug(f'Loaded {len(mapbox_lookup_table)} rows from database')
+
+    # Column name aliases
+    cc_country = COLUMNS[Tables.COUNTRY_COORDINATES].COUNTRY.value
+    cc_lat = COLUMNS[Tables.COUNTRY_COORDINATES].LATITUDE.value
+    cc_lon = COLUMNS[Tables.COUNTRY_COORDINATES].LONGITUDE.value
+    rd_country = COLUMNS[Tables.RECORD_DETAILS].COUNTRY.value
+    rd_lat = COLUMNS[Tables.RECORD_DETAILS].LATITUDE.value
+    rd_lon = COLUMNS[Tables.RECORD_DETAILS].LONGITUDE.value
+    rd_interp = COLUMNS[Tables.RECORD_DETAILS].LAT_LON_INTERPOLATED.value
+
+    for c in subset.country.unique():
+        logger.debug(f'Mapbox processing for {c}')
+        lat = None
+        lon = None
+        # Fetch new lat/lon mappings where necessary
+        if c not in mapbox_lookup_table[cc_country]:
+            try:
+                logger.debug(f"Querying mapbox for {c}")
+                response = request(
+                    'GET',
+                    f"{MAPBOX_URL}/{c}.json?access_token={MAPBOX_KEY}"
+                )
+                j = response.json()
+                results = j['features']
+                top_result = results[0]
+                lat, lon = top_result['center']
+                mapbox_lookup_table = mapbox_lookup_table.concat(
+                    [
+                        mapbox_lookup_table,
+                        pandas.DataFrame.from_dict({
+                            cc_country: c,
+                            cc_lat: lat,
+                            cc_lon: lon
+                        })
+                    ],
+                    ignore_index=True
+                )
+            except BaseException as e:
+                # Soft fail on error
+                logger.error(e)
+            else:
+                # Load from database cache
+                logger.debug(f"Found {c} in database")
+                row = mapbox_lookup_table[mapbox_lookup_table[cc_country] == c]
+                lat = row[cc_lat][0]
+                lon = row[cc_lon][0]
+
+            # Update records
+            if lat is not None and lon is not None:
+                logger.debug(f"{c} resolves to {lat}, {lon}")
+                subset.loc[subset[rd_country] == c, [rd_lat, rd_lon, rd_interp]] = (lat, lon, True)
+
+    # Save updated lookup table
+    logger.debug("Saving updated records.")
+    with get_engine().connect() as conn:
+        mapbox_lookup_table.to_sql(
+            name=Tables.COUNTRY_COORDINATES.value,
+            con=conn,
+            if_exists='append',
+            index=False
+        )
+        conn.commit()
+
+    logger.debug("Interpolation complete")
+    return df
 
 
 def filter_records() -> None:
@@ -280,12 +375,19 @@ def filter_records() -> None:
             sqlalchemy.text((
                 f"UPDATE {Tables.RECORD.value} "
                 f"SET "
-                f"{record}=:an, {passed_filter}=:fltr, {filter_failed}=:fail, {waiting_since} = NOW() "
-                f"WHERE {record}=:an"
+                f"{record}=:id, {passed_filter}=:fltr, {filter_failed}=:fail, {waiting_since} = NOW() "
+                f"WHERE {record}=:id"
             )),
-            [{'an': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_records.itertuples(index=False)]
+            [{'id': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_records.itertuples(index=False)]
         )
         session.commit()
+        session.execute(
+            sqlalchemy.text((
+                f"UPDATE {Tables.RECORD.value} "
+                f"SET {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = '{AssemblyStatus.SKIPPED.value}' "
+                f"WHERE {passed_filter} IS FALSE"
+            ))
+        )
         # Let the api know the records are waiting
         session.execute(
             sqlalchemy.text((
@@ -315,21 +417,9 @@ def release_records() -> None:
         session.execute(
             sqlalchemy.text((
                 f"UPDATE {Tables.RECORD.value} "
-                f"SET {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = NULL, "
+                f"SET {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = '{AssemblyStatus.WAITING}', "
                 f"{COLUMNS[Tables.RECORD].WAITING_SINCE.value} = NOW() "
-                f"WHERE {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = 'under consideration' "
-                f"AND date_part("
-                f"  '{Settings.CONSIDERATION_PERIOD_UNITS.value}', "
-                f"  NOW() - {COLUMNS[Tables.RECORD].WAITING_SINCE.value}"
-                f") >= {Settings.CONSIDERATION_PERIOD_N.value}"
-            ))
-        )
-        session.execute(
-            sqlalchemy.text((
-                f"UPDATE {Tables.RECORD.value} "
-                f"SET {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = NULL, "
-                f"{COLUMNS[Tables.RECORD].WAITING_SINCE.value} = NOW() "
-                f"WHERE {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = 'in progress' "
+                f"WHERE {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = '{AssemblyStatus.IN_PROGRESS}' "
                 f"AND date_part("
                 f"  '{Settings.ASSEMBLY_PERIOD_UNITS.value}', "
                 f"  NOW() - {COLUMNS[Tables.RECORD].WAITING_SINCE.value}"

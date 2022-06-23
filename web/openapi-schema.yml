@@ -3,6 +3,224 @@ info:
   title: ''
   version: ''
 paths:
+  /records/:
+    get:
+      operationId: listRecords
+      description: ''
+      parameters:
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 123
+                  next:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?offset=400&limit=100
+                  previous:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?offset=200&limit=100
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /records/{id}/:
+    get:
+      operationId: retrieveRecord
+      description: 'View metadata for an ENA record.
+
+
+        **pk**: Record identifier'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /taxons/:
+    get:
+      operationId: listTaxons
+      description: ''
+      parameters:
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 123
+                  next:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?offset=400&limit=100
+                  previous:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?offset=200&limit=100
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+    post:
+      operationId: createTaxons
+      description: 'Add a new id for tracking.
+
+
+        **pk**: Taxonomic identifier (will include subtree)'
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+  /taxons/{id}/:
+    get:
+      operationId: retrieveTaxons
+      description: ''
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: A unique value identifying this taxons.
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+    put:
+      operationId: updateTaxons
+      description: ''
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: A unique value identifying this taxons.
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+    patch:
+      operationId: partialUpdateTaxons
+      description: ''
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: A unique value identifying this taxons.
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
   /api/taxons/:
     get:
       operationId: listListTaxons
@@ -15,108 +233,6 @@ paths:
               schema:
                 type: array
                 items: {}
-          description: ''
-      tags:
-      - api
-  /api/taxon/{taxon_id}/:
-    get:
-      operationId: retrieveViewTaxon
-      description: 'View details of a id.
-
-
-        **id**: Taxonomic identifier (will include subtree)'
-      parameters:
-      - name: taxon_id
-        in: path
-        required: true
-        description: ''
-        schema:
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: ''
-      tags:
-      - api
-    put:
-      operationId: updateViewTaxon
-      description: 'Add a new id for tracking.
-
-
-        **id**: Taxonomic identifier (will include subtree)'
-      parameters:
-      - name: taxon_id
-        in: path
-        required: true
-        description: ''
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema: {}
-          application/x-www-form-urlencoded:
-            schema: {}
-          multipart/form-data:
-            schema: {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: ''
-      tags:
-      - api
-  /api/record/{record_id}/:
-    get:
-      operationId: retrieveViewRecord
-      description: 'View metadata for an ENA record.
-
-
-        **id**: Record identifier'
-      parameters:
-      - name: record_id
-        in: path
-        required: true
-        description: ''
-        schema:
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: ''
-      tags:
-      - api
-    put:
-      operationId: updateViewRecord
-      description: 'Update metadata for an ENA record with an assembly attempt result.
-
-
-        **id**: Record identifier'
-      parameters:
-      - name: record_id
-        in: path
-        required: true
-        description: ''
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema: {}
-          application/x-www-form-urlencoded:
-            schema: {}
-          multipart/form-data:
-            schema: {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
           description: ''
       tags:
       - api
@@ -136,7 +252,7 @@ paths:
           description: ''
       tags:
       - api
-  /api/confirm_assembly_candidate/{record_id}/:
+  /api/confirm_assembly_candidate/{id}/:
     get:
       operationId: retrieveAcceptAssemblyCandidate
       description: 'Confirm assembly will proceed on an id
@@ -144,7 +260,7 @@ paths:
 
         **id**: Record identifier'
       parameters:
-      - name: record_id
+      - name: id
         in: path
         required: true
         description: ''
@@ -174,3 +290,184 @@ paths:
           description: ''
       tags:
       - api
+  /records/{id}/report_assembly_result/:
+    post:
+      operationId: reportAssemblyResultRecord
+      description: 'Update metadata for an ENA record with a screening result.
+
+
+        **pk**: Record identifier'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Record'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Record'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Record'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /records/{id}/report_screening_result/:
+    post:
+      operationId: reportScreeningResultRecord
+      description: 'Update metadata for an ENA record with a screening result.
+
+
+        **pk**: Record identifier'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Record'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Record'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Record'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+components:
+  schemas:
+    Record:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 1024
+        accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        experiment_accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        run_accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        sample_accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        secondary_sample_accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        fastq_ftp:
+          type: string
+          nullable: true
+          maxLength: 4096
+        passed_filter:
+          type: boolean
+          nullable: true
+        filter_failed:
+          type: string
+          nullable: true
+          maxLength: 1024
+        time_fetched:
+          type: string
+          format: date-time
+          readOnly: true
+        waiting_since:
+          type: string
+          format: date-time
+          nullable: true
+        assembly_result:
+          enum:
+          - skipped
+          - waiting
+          - under consideration
+          - in progress
+          - fail
+          - success
+          type: string
+        passed_screening:
+          type: boolean
+          nullable: true
+        screening_message:
+          type: string
+          nullable: true
+          maxLength: 4096
+        assembled_genome_url:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_report_url:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_process:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_exit_code:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_stdout:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_stderr:
+          type: string
+          nullable: true
+          maxLength: 1024
+        taxon:
+          type: string
+      required:
+      - id
+      - taxon
+    Taxon:
+      type: object
+      properties:
+        id:
+          type: integer
+          maximum: 9223372036854775807
+          format: int64
+          minimum: 0
+        last_updated:
+          type: string
+          format: date-time
+          nullable: true
+        time_added:
+          type: string
+          format: date-time
+          readOnly: true
+        post_assembly_filters:
+          type: object
+          nullable: true
+      required:
+      - id

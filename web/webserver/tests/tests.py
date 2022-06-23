@@ -75,7 +75,7 @@ class RecordTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         candidate = response.json()
         self.assertEqual(candidate['passed_filter'], True)
-        self.assertEqual(candidate['assembly_result'], AssemblyStatus.UNDER_CONSIDERATION.value)
+        self.assertEqual(candidate['assembly_result'], AssemblyStatus.WAITING.value)
 
         # confirm candidate
         url = reverse('assembly_confirm', args=(candidate['id'],))

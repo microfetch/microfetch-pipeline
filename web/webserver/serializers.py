@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from rest_framework.reverse import reverse
-from .models import Taxons, Records, RecordDetails
+from .models import Taxons, Records, RecordDetails, QualifyrReport
 
 import logging
 
@@ -32,10 +32,22 @@ class TaxonSerializer(serializers.HyperlinkedModelSerializer):
 class RecordDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = RecordDetails
-        fields = '__all__'
+        exclude = ['id', 'record', 'time_fetched']
+
+
+class QualifyrReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QualifyrReport
+        exclude = ['id', 'record']
 
 
 class RecordSerializer(serializers.HyperlinkedModelSerializer):
+
+    class Meta:
+        model = Records
+        exclude = []
+
+    id = serializers.ReadOnlyField(read_only=True)
     taxon = serializers.HyperlinkedRelatedField(
         view_name='taxon-detail',
         lookup_field='id',
@@ -48,12 +60,9 @@ class RecordSerializer(serializers.HyperlinkedModelSerializer):
         lookup_url_kwarg='pk',
         read_only=True
     )
+    qualifyr_report = QualifyrReportSerializer(read_only=True)
     action_links = serializers.SerializerMethodField(read_only=True)
     details = RecordDetailSerializer(read_only=True)
-
-    class Meta:
-        model = Records
-        exclude = []
 
     def get_action_links(self, obj):
         return {

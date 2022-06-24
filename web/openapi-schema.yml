@@ -47,13 +47,161 @@ paths:
           description: ''
       tags:
       - records
+  /records/awaiting_assembly/:
+    get:
+      operationId: awaitingAssemblyRecord
+      description: 'View records which are awaiting assembly.
+
+
+        Related action endpoints are included in each record''s **action_links**.
+
+        These action links allow assembly pipeline runners to interface effectively
+
+        with the API:
+
+
+        If a record awaiting assembly is accepted for an assembly attempt,
+
+        this API should be notified to avoid redundant assembly attempts.
+
+        The API can be notified by sending an **HTTP GET request** to the
+
+        `/records/{id}/register_assembly_attempt/` endpoint.
+
+
+        Records marked as undergoing assembly will not be included in future
+
+        requests to this endpoint for some time.
+
+        The hold duration depends on runtime configuration, but is 24 hours by default.
+
+
+        Once assembly is complete, the API should be notified of the result
+
+        using the **POST** `/records/{id}/report_assembly_result/` endpoint.
+
+        That endpoint accepts JSON input with the following fields:
+
+
+        **assembly_result** [required]: ''success'' or ''fail''
+
+
+        **assembled_genome_url**: URL of the assembled genomic data, if applicable.
+
+
+        **assembled_genome_sha1**: SHA1 Hexdigest of the assembled genome file
+
+
+        **assembly_error_report_url**: URL of the nextflow pipeline error log for
+        failed runs.
+
+
+        **assembly_error_process**: Name (and tag) of failing pipeline process.
+
+
+        **assembly_error_exit_code**: Error code of the failing process.
+
+
+        **assembly_error_stdout**: Output of the failing process.
+
+
+        **assembly_error_stderr**: Error report from the failing process.
+
+
+        **qualifyr_report**: JSON representation of the assembly qualifyr_report.tsv
+        file.
+
+        For a full list of compatible fields, **GET** `/qualifyr_report_fields/`.'
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /records/awaiting_screening/:
+    get:
+      operationId: awaitingScreeningRecord
+      description: 'View records which are awaiting screening.
+
+
+        Screening results are reported by POSTing to a record''s
+
+        `action_links.report_screening_result` URL.
+
+
+        POST content should be JSON and include the fields:
+
+
+        **passed_screening** [required]: boolean (or string representation) of whether
+
+        the screening process was passed for the record.
+
+
+        **screening_message**: String with an (optional) message to provide more details
+
+        about the screening. If the screening fails, it can be useful to specify a
+        reason
+
+        in this field.'
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /records/screened/:
+    get:
+      operationId: screenedRecord
+      description: View records which have passed screening.
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
   /records/{id}/:
     get:
       operationId: retrieveRecord
-      description: 'View metadata for an ENA record.
+      description: ''
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /records/{id}/register_assembly_attempt/:
+    get:
+      operationId: registerAssemblyAttemptRecord
+      description: 'Mark a record as undergoing assembly.
 
 
-        **pk**: Record identifier'
+        Records marked as undergoing assembly will not be included in future
+
+        requests to this endpoint for some time.
+
+        The hold duration depends on runtime configuration, but is 24 hours by default.'
       parameters:
       - name: id
         in: path
@@ -116,10 +264,7 @@ paths:
       - taxons
     post:
       operationId: createTaxons
-      description: 'Add a new id for tracking.
-
-
-        **pk**: Taxonomic identifier (will include subtree)'
+      description: ''
       parameters: []
       requestBody:
         content:
@@ -221,60 +366,22 @@ paths:
           description: ''
       tags:
       - taxons
-  /api/taxons/:
-    get:
-      operationId: listListTaxons
-      description: View all tracked taxons.
-      parameters: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items: {}
-          description: ''
-      tags:
-      - api
-  /api/request_assembly_candidate/:
-    get:
-      operationId: listRequestAssemblyCandidates
-      description: NON-RESTFUL - Will determine the next available record for assembly
-        and return it.
-      parameters: []
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items: {}
-          description: ''
-      tags:
-      - api
-  /api/confirm_assembly_candidate/{id}/:
-    get:
-      operationId: retrieveAcceptAssemblyCandidate
-      description: 'Confirm assembly will proceed on an id
-
-
-        **id**: Record identifier'
+    delete:
+      operationId: destroyTaxons
+      description: ''
       parameters:
       - name: id
         in: path
         required: true
-        description: ''
+        description: A unique value identifying this taxons.
         schema:
           type: string
       responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
+        '204':
           description: ''
       tags:
-      - api
-  /api/qualifyr_report_fields/:
+      - taxons
+  /qualifyr_report_fields/:
     get:
       operationId: listQualifyrReportFields
       description: A list of all acceptable fields for inclusion in a Qualifyr Report
@@ -289,14 +396,45 @@ paths:
                 items: {}
           description: ''
       tags:
-      - api
+      - qualifyr-report-fields
   /records/{id}/report_assembly_result/:
     post:
       operationId: reportAssemblyResultRecord
-      description: 'Update metadata for an ENA record with a screening result.
+      description: 'Update metadata for an ENA record with an assembly result.
 
 
-        **pk**: Record identifier'
+        POST content should be JSON with the following fields:
+
+
+        **assembly_result** [required]: ''success'' or ''fail''
+
+
+        **assembled_genome_url**: URL of the assembled genomic data, if applicable.
+
+
+        **assembled_genome_sha1**: SHA1 Hexdigest of the assembled genome file
+
+
+        **assembly_error_report_url**: URL of the nextflow pipeline error log for
+        failed runs.
+
+
+        **assembly_error_process**: Name (and tag) of failing pipeline process.
+
+
+        **assembly_error_exit_code**: Error code of the failing process.
+
+
+        **assembly_error_stdout**: Output of the failing process.
+
+
+        **assembly_error_stderr**: Error report from the failing process.
+
+
+        **qualifyr_report**: JSON representation of the assembly qualifyr_report.tsv
+        file.
+
+        For a full list of compatible fields, **GET** `/qualifyr_report_fields/`.'
       parameters:
       - name: id
         in: path
@@ -330,7 +468,20 @@ paths:
       description: 'Update metadata for an ENA record with a screening result.
 
 
-        **pk**: Record identifier'
+        POST content should be JSON and include the fields:
+
+
+        **passed_screening** [required]: boolean (or string representation) of whether
+
+        the screening process was passed for the record.
+
+
+        **screening_message**: String with an (optional) message to provide more details
+
+        about the screening. If the screening fails, it can be useful to specify a
+        reason
+
+        in this field.'
       parameters:
       - name: id
         in: path
@@ -363,9 +514,776 @@ components:
     Record:
       type: object
       properties:
+        url:
+          type: string
+          readOnly: true
         id:
           type: string
-          maxLength: 1024
+          readOnly: true
+        taxon:
+          type: string
+          readOnly: true
+        qualifyr_report:
+          type: object
+          properties:
+            sample_name:
+              type: string
+              nullable: true
+              maxLength: 256
+            result:
+              type: string
+              nullable: true
+              maxLength: 256
+            bactinspector_result_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            bactinspector_result_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            bactinspector_species_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            bactinspector_species_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            confindr_contam_status_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            confindr_contam_status_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            confindr_percentage_contamination_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            confindr_percentage_contamination_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Adapter_Content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Adapter_Content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Basic_Statistics_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Basic_Statistics_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Overrepresented_sequences_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Overrepresented_sequences_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_base_N_content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_base_N_content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_base_sequence_quality_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_base_sequence_quality_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_sequence_GC_content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_sequence_GC_content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_sequence_quality_scores_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_sequence_quality_scores_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Sequence_Duplication_Levels_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Sequence_Duplication_Levels_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Sequence_Length_Distribution_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Sequence_Length_Distribution_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Adapter_Content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Adapter_Content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Basic_Statistics_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Basic_Statistics_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Overrepresented_sequences_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Overrepresented_sequences_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_base_N_content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_base_N_content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_base_sequence_quality_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_base_sequence_quality_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_sequence_GC_content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_sequence_GC_content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_sequence_quality_scores_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_sequence_quality_scores_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Sequence_Duplication_Levels_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Sequence_Duplication_Levels_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Sequence_Length_Distribution_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Sequence_Length_Distribution_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            file_size_check_size_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            file_size_check_size_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_Ns_per_100_kbp_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_Ns_per_100_kbp_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_contigs_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_contigs_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_GC_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_GC_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_N50_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_N50_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_Total_length_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_Total_length_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+          readOnly: true
+        action_links:
+          type: string
+          readOnly: true
+        details:
+          type: object
+          properties:
+            lat_lon_interpolated:
+              type: boolean
+            accession:
+              type: string
+              nullable: true
+              maxLength: 40
+            altitude:
+              type: string
+              nullable: true
+              maxLength: 1024
+            assembly_quality:
+              type: string
+              nullable: true
+              maxLength: 1024
+            assembly_software:
+              type: string
+              nullable: true
+              maxLength: 1024
+            base_count:
+              type: string
+              nullable: true
+              maxLength: 1024
+            binning_software:
+              type: string
+              nullable: true
+              maxLength: 1024
+            bio_material:
+              type: string
+              nullable: true
+              maxLength: 1024
+            broker_name:
+              type: string
+              nullable: true
+              maxLength: 1024
+            cell_line:
+              type: string
+              nullable: true
+              maxLength: 1024
+            cell_type:
+              type: string
+              nullable: true
+              maxLength: 1024
+            center_name:
+              type: string
+              nullable: true
+              maxLength: 1024
+            checklist:
+              type: string
+              nullable: true
+              maxLength: 1024
+            collected_by:
+              type: string
+              nullable: true
+              maxLength: 1024
+            collection_date:
+              type: string
+              nullable: true
+              maxLength: 1024
+            collection_date_submitted:
+              type: string
+              nullable: true
+              maxLength: 1024
+            completeness_score:
+              type: string
+              nullable: true
+              maxLength: 1024
+            contamination_score:
+              type: string
+              nullable: true
+              maxLength: 1024
+            country:
+              type: string
+              nullable: true
+              maxLength: 1024
+            cram_index_ftp:
+              type: string
+              nullable: true
+              maxLength: 4096
+            cram_index_aspera:
+              type: string
+              nullable: true
+              maxLength: 4096
+            cram_index_galaxy:
+              type: string
+              nullable: true
+              maxLength: 4096
+            cultivar:
+              type: string
+              nullable: true
+              maxLength: 1024
+            culture_collection:
+              type: string
+              nullable: true
+              maxLength: 1024
+            depth:
+              type: string
+              nullable: true
+              maxLength: 1024
+            dev_stage:
+              type: string
+              nullable: true
+              maxLength: 1024
+            description:
+              type: string
+              nullable: true
+              maxLength: 4096
+            ecotype:
+              type: string
+              nullable: true
+              maxLength: 1024
+            elevation:
+              type: string
+              nullable: true
+              maxLength: 1024
+            environment_biome:
+              type: string
+              nullable: true
+              maxLength: 1024
+            environment_feature:
+              type: string
+              nullable: true
+              maxLength: 1024
+            environment_material:
+              type: string
+              nullable: true
+              maxLength: 1024
+            environmental_package:
+              type: string
+              nullable: true
+              maxLength: 1024
+            environmental_sample:
+              type: string
+              nullable: true
+              maxLength: 1024
+            experiment_accession:
+              type: string
+              nullable: true
+              maxLength: 40
+            experiment_alias:
+              type: string
+              nullable: true
+              maxLength: 1024
+            experiment_title:
+              type: string
+              nullable: true
+              maxLength: 4096
+            experimental_factor:
+              type: string
+              nullable: true
+              maxLength: 1024
+            fastq_bytes:
+              type: string
+              nullable: true
+              maxLength: 1024
+            fastq_md5:
+              type: string
+              nullable: true
+              maxLength: 1024
+            fastq_ftp:
+              type: string
+              nullable: true
+              maxLength: 4096
+            fastq_aspera:
+              type: string
+              nullable: true
+              maxLength: 4096
+            fastq_galaxy:
+              type: string
+              nullable: true
+              maxLength: 4096
+            first_created:
+              type: string
+              nullable: true
+              maxLength: 1024
+            first_public:
+              type: string
+              nullable: true
+              maxLength: 1024
+            germline:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host_body_site:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host_genotype:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host_growth_conditions:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host_gravidity:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host_phenotype:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host_sex:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host_status:
+              type: string
+              nullable: true
+              maxLength: 1024
+            host_tax_id:
+              type: string
+              nullable: true
+              maxLength: 1024
+            identified_by:
+              type: string
+              nullable: true
+              maxLength: 1024
+            instrument_model:
+              type: string
+              nullable: true
+              maxLength: 1024
+            instrument_platform:
+              type: string
+              nullable: true
+              maxLength: 1024
+            investigation_type:
+              type: string
+              nullable: true
+              maxLength: 1024
+            isolate:
+              type: string
+              nullable: true
+              maxLength: 1024
+            isolation_source:
+              type: string
+              nullable: true
+              maxLength: 1024
+            last_updated:
+              type: string
+              nullable: true
+              maxLength: 1024
+            lat:
+              type: string
+              nullable: true
+              maxLength: 40
+            lon:
+              type: string
+              nullable: true
+              maxLength: 40
+            library_construction_protocol:
+              type: string
+              nullable: true
+              maxLength: 4096
+            library_layout:
+              type: string
+              nullable: true
+              maxLength: 1024
+            library_name:
+              type: string
+              nullable: true
+              maxLength: 1024
+            library_selection:
+              type: string
+              nullable: true
+              maxLength: 1024
+            library_source:
+              type: string
+              nullable: true
+              maxLength: 1024
+            library_strategy:
+              type: string
+              nullable: true
+              maxLength: 1024
+            location:
+              type: string
+              nullable: true
+              maxLength: 1024
+            mating_type:
+              type: string
+              nullable: true
+              maxLength: 1024
+            nominal_length:
+              type: string
+              nullable: true
+              maxLength: 1024
+            nominal_sdev:
+              type: string
+              nullable: true
+              maxLength: 1024
+            parent_study:
+              type: string
+              nullable: true
+              maxLength: 1024
+            ph:
+              type: string
+              nullable: true
+              maxLength: 1024
+            project_name:
+              type: string
+              nullable: true
+              maxLength: 1024
+            protocol_label:
+              type: string
+              nullable: true
+              maxLength: 1024
+            read_count:
+              type: string
+              nullable: true
+              maxLength: 1024
+            run_accession:
+              type: string
+              nullable: true
+              maxLength: 1024
+            run_alias:
+              type: string
+              nullable: true
+              maxLength: 1024
+            salinity:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sample_accession:
+              type: string
+              nullable: true
+              maxLength: 40
+            sample_alias:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sample_capture_status:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sample_collection:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sample_description:
+              type: string
+              nullable: true
+              maxLength: 4096
+            sample_material:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sample_title:
+              type: string
+              nullable: true
+              maxLength: 4096
+            sampling_campaign:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sampling_platform:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sampling_site:
+              type: string
+              nullable: true
+              maxLength: 1024
+            scientific_name:
+              type: string
+              nullable: true
+              maxLength: 1024
+            secondary_sample_accession:
+              type: string
+              nullable: true
+              maxLength: 40
+            secondary_study_accession:
+              type: string
+              nullable: true
+              maxLength: 40
+            sequencing_method:
+              type: string
+              nullable: true
+              maxLength: 1024
+            serotype:
+              type: string
+              nullable: true
+              maxLength: 1024
+            serovar:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sex:
+              type: string
+              nullable: true
+              maxLength: 1024
+            specimen_voucher:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sra_bytes:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sra_md5:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sra_ftp:
+              type: string
+              nullable: true
+              maxLength: 4096
+            sra_aspera:
+              type: string
+              nullable: true
+              maxLength: 4096
+            sra_galaxy:
+              type: string
+              nullable: true
+              maxLength: 4096
+            strain:
+              type: string
+              nullable: true
+              maxLength: 1024
+            study_accession:
+              type: string
+              nullable: true
+              maxLength: 40
+            study_alias:
+              type: string
+              nullable: true
+              maxLength: 1024
+            study_title:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sub_species:
+              type: string
+              nullable: true
+              maxLength: 1024
+            sub_strain:
+              type: string
+              nullable: true
+              maxLength: 1024
+            submission_accession:
+              type: string
+              nullable: true
+              maxLength: 40
+            submission_tool:
+              type: string
+              nullable: true
+              maxLength: 1024
+            submitted_bytes:
+              type: string
+              nullable: true
+              maxLength: 1024
+            submitted_md5:
+              type: string
+              nullable: true
+              maxLength: 1024
+            submitted_ftp:
+              type: string
+              nullable: true
+              maxLength: 4096
+            submitted_aspera:
+              type: string
+              nullable: true
+              maxLength: 4096
+            submitted_galaxy:
+              type: string
+              nullable: true
+              maxLength: 4096
+            submitted_format:
+              type: string
+              nullable: true
+              maxLength: 1024
+            submitted_host_sex:
+              type: string
+              nullable: true
+              maxLength: 40
+            submitted_sex:
+              type: string
+              nullable: true
+              maxLength: 40
+            target_gene:
+              type: string
+              nullable: true
+              maxLength: 1024
+            taxonomic_classification:
+              type: string
+              nullable: true
+              maxLength: 1024
+            taxonomic_identity_marker:
+              type: string
+              nullable: true
+              maxLength: 1024
+            tax_id:
+              type: string
+              nullable: true
+              maxLength: 1024
+            taxonomy:
+              type: string
+              nullable: true
+              maxLength: 1024
+            temperature:
+              type: string
+              nullable: true
+              maxLength: 1024
+            tissue_lib:
+              type: string
+              nullable: true
+              maxLength: 1024
+            tissue_type:
+              type: string
+              nullable: true
+              maxLength: 1024
+            variety:
+              type: string
+              nullable: true
+              maxLength: 1024
+          readOnly: true
         accession:
           type: string
           nullable: true
@@ -409,7 +1327,6 @@ components:
           enum:
           - skipped
           - waiting
-          - under consideration
           - in progress
           - fail
           - success
@@ -422,6 +1339,10 @@ components:
           nullable: true
           maxLength: 4096
         assembled_genome_url:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembled_genome_sha1:
           type: string
           nullable: true
           maxLength: 1024
@@ -445,11 +1366,6 @@ components:
           type: string
           nullable: true
           maxLength: 1024
-        taxon:
-          type: string
-      required:
-      - id
-      - taxon
     Taxon:
       type: object
       properties:
@@ -458,16 +1374,24 @@ components:
           maximum: 9223372036854775807
           format: int64
           minimum: 0
-        last_updated:
+        url:
           type: string
-          format: date-time
-          nullable: true
-        time_added:
-          type: string
-          format: date-time
+          readOnly: true
+        records:
+          type: array
+          items:
+            type: string
           readOnly: true
         post_assembly_filters:
           type: object
           nullable: true
+        last_updated:
+          type: string
+          format: date-time
+          readOnly: true
+        time_added:
+          type: string
+          format: date-time
+          readOnly: true
       required:
       - id

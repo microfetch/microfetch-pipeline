@@ -43,6 +43,7 @@ class Records(models.Model):
     passed_screening = models.BooleanField(null=True)
     screening_message = models.CharField(null=True, max_length=LENGTH_LONG)
     assembled_genome_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
+    assembled_genome_sha1 = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     assembly_error_report_url = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     assembly_error_process = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     assembly_error_exit_code = models.CharField(null=True, max_length=LENGTH_MEDIUM)
@@ -261,7 +262,7 @@ def name_map(s: str, to_python: bool = True) -> str:
 
 
 class QualifyrReport(models.Model):
-    record = models.ForeignKey("Records", on_delete=models.DO_NOTHING)
+    record = models.OneToOneField("Records", related_name="qualifyr_report", on_delete=models.DO_NOTHING)
 
     sample_name = models.CharField(max_length=LENGTH_SHORT, null=True)
     result = models.CharField(max_length=LENGTH_SHORT, null=True)

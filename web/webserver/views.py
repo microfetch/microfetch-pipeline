@@ -208,6 +208,8 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
 
         **assembled_genome_url**: URL of the assembled genomic data, if applicable.
 
+        **assembled_genome_sha1**: SHA1 Hexdigest of the assembled genome file
+
         **assembly_error_report_url**: URL of the nextflow pipeline error log for failed runs.
 
         **assembly_error_process**: Name (and tag) of failing pipeline process.
@@ -229,6 +231,18 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
     def awaiting_screening(self, request: HttpRequest, **kwargs):
         """
         View records which are awaiting screening.
+
+        Screening results are reported by POSTing to a record's
+        `action_links.report_screening_result` URL.
+
+        POST content should be JSON and include the fields:
+
+        **passed_screening** [required]: boolean (or string representation) of whether
+        the screening process was passed for the record.
+
+        **screening_message**: String with an (optional) message to provide more details
+        about the screening. If the screening fails, it can be useful to specify a reason
+        in this field.
         """
         return self._filter_queryset(assembly_status=['success'], passed_screening=['false'])
 
@@ -269,6 +283,8 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
 
         **assembled_genome_url**: URL of the assembled genomic data, if applicable.
 
+        **assembled_genome_sha1**: SHA1 Hexdigest of the assembled genome file
+
         **assembly_error_report_url**: URL of the nextflow pipeline error log for failed runs.
 
         **assembly_error_process**: Name (and tag) of failing pipeline process.
@@ -302,6 +318,8 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
         record.assembly_result = data['assembly_result']
         if 'assembled_genome_url' in data.keys():
             record.assembled_genome_url = data['assembled_genome_url']
+        if 'assembled_genome_sha1' in data.keys():
+            record.assembled_genome_sha1 = data['assembled_genome_sha1']
         if 'assembly_error_report_url' in data.keys():
             record.assembly_error_report_url = data['assembly_error_report_url']
         if 'assembly_error_process' in data.keys():
@@ -334,6 +352,7 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
 
         **passed_screening** [required]: boolean (or string representation) of whether
         the screening process was passed for the record.
+
         **screening_message**: String with an (optional) message to provide more details
         about the screening. If the screening fails, it can be useful to specify a reason
         in this field.

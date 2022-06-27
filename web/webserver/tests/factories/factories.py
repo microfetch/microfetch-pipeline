@@ -25,6 +25,7 @@ class RecordFactory(factory.django.DjangoModelFactory):
 
     class Params:
         filtered = factory.Trait(
+            assembly_result=AssemblyStatus.WAITING.value,
             passed_filter=True,
             filter_failed=None,
             waiting_since=fake.date_time_this_month()
@@ -69,7 +70,7 @@ class RecordFactory(factory.django.DjangoModelFactory):
                 'date acceptable'
             ]
         ))
-    assembly_result = None
+    assembly_result = AssemblyStatus.SKIPPED.value
     assembled_genome_url = None
     waiting_since = None
 

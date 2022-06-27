@@ -1,5 +1,4 @@
-from django.utils.datastructures import MultiValueDictKeyError
-from django.http import HttpRequest, HttpResponse, JsonResponse, Http404
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import render, redirect
 from django.utils import timezone
@@ -270,7 +269,7 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
             record.waiting_since = timezone.now()
             record.save()
             return Response(self.get_serializer(record, context=self.get_serializer_context()).data)
-        raise rest_framework.exceptions.APIException('Invalid assembly candidate. This record may already be reserved.')
+        raise rest_framework.exceptions.ValidationError('Invalid assembly candidate. This record may already be reserved.')
 
     @rest_framework.decorators.action(methods=['post'], detail=True)
     def report_assembly_result(self, request: HttpRequest, pk: str, **kwargs):
@@ -313,7 +312,7 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
             errors.append(f"No record found with id {pk}")
 
         if len(errors) > 0:
-            raise rest_framework.exceptions.APIException(errors)
+            raise rest_framework.exceptions.ValidationError(errors)
 
         record.assembly_result = data['assembly_result']
         if 'assembled_genome_url' in data.keys():
@@ -374,7 +373,7 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
             errors.append(f"No record found with id {pk}")
 
         if len(errors) > 0:
-            raise rest_framework.exceptions.APIException(errors)
+            raise rest_framework.exceptions.ValidationError(errors)
 
         record.passed_screening = passed_screening
         if 'screening_message' in data.keys():

@@ -9,7 +9,6 @@ ena_utils==0.2.1
 # Digital Ocean
 python-digitalocean==1.17.0
 
-
 # web requirements -- dev only. TODO: remove for production
 Django==4.0.4
 djangorestframework==3.13.1

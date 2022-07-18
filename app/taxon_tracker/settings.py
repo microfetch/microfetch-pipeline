@@ -9,4 +9,4 @@ class Settings(Enum):
     ASSEMBLY_PERIOD_N = int(os.environ.get('ASSEMBLY_PERIOD_N', '7'))
     ASSEMBLY_PERIOD_UNITS = os.environ.get('ASSEMBLY_PERIOD_UNITS', 'days')
     ENA_REQUEST_LIMIT = int(os.environ.get('ENA_REQUEST_LIMIT', '10'))
-    EPOCH_DATE = os.environ.get('EPOCH_DATE', '2022-06-18')
+    EPOCH_DATE = os.environ.get('EPOCH_DATE', '2021-01-01')

@@ -19,7 +19,6 @@ class AssemblyStatus(Enum):
 class Tables(Enum):
     TAXON = 'webserver_taxons'
     RECORD = 'webserver_records'
-    RECORD_DETAILS = 'webserver_recorddetails'
     COUNTRY_COORDINATES = 'webserver_countrycoordinates'
     LOGGING = 'django_db_logger_statuslog'
 
@@ -42,31 +41,18 @@ class RecordCols(Enum):
     TIME_FETCHED = 'time_fetched'
     WAITING_SINCE = 'waiting_since'
     ASSEMBLY_RESULT = 'assembly_result'
-
-
-class DetailCols(Enum):
-    RECORD = 'record_id'
-    TIME_FETCHED = 'time_fetched'
-    SAMPLE_ACCESSION = 'sample_accession'
-    EXPERIMENT_ACCESSION = 'experiment_accession'
-    RUN_ACCESSION = 'run_accession'
-    FASTQ_FTP = 'fastq_ftp'
-    COUNTRY = 'country'
-    LATITUDE = 'lat'
-    LONGITUDE = 'lon'
     LAT_LON_INTERPOLATED = 'lat_lon_interpolated'
 
 
 class CountryCols(Enum):
     COUNTRY = 'country'
-    LATITUDE = 'latitude'
-    LONGITUDE = 'longitude'
+    LATITUDE = 'lat'
+    LONGITUDE = 'lon'
 
 
 COLUMNS = {
     Tables.TAXON: TaxonCols,
     Tables.RECORD: RecordCols,
-    Tables.RECORD_DETAILS: DetailCols,
     Tables.COUNTRY_COORDINATES: CountryCols
 }
 

@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from time import sleep
 from requests import request
 
-from taxon_tracker import filters
 from taxon_tracker.settings import Settings
 from taxon_tracker.logging import DatabaseHandler, stream_handler, log_format
 from taxon_tracker.database import Tables, COLUMNS, get_engine, AssemblyStatus
@@ -84,9 +83,6 @@ def update_records(taxon: pandas.Series) -> None:
     # Query ENA for all record numbers
     query_ENA(taxon)
 
-    # Filter new records for suitability
-    filter_records()
-
 
 def query_ENA(taxon: pandas.Series) -> None:
     taxon_id = taxon[COLUMNS[Tables.TAXON].ID.value]
@@ -99,14 +95,22 @@ def query_ENA(taxon: pandas.Series) -> None:
     while True:
         url = (
             f"https://www.ebi.ac.uk/ena/portal/api/search?"
-            f"includeAccessionType=taxon"
-            f"&includeAccessions={taxon_id}"
-            f"&format=json"
+            f"format=json"
+            f"&result=read_run"
+            f"&fields=sample_accession,experiment_accession,run_accession"
+            f",lat,lon,country,collection_date,fastq_ftp,first_public"
+            # Core query
             f"&query=first_public%3E%3D{updated}"
+            f"%20AND%20tax_eq({taxon_id})"
+            # Filters
+            f"%20AND%20library_strategy=WGS"
+            f"%20AND%20instrument_platform=ILLUMINA"
+            f"%20AND%20library_source=GENOMIC"
+            f"%20AND%20library_layout=PAIRED"
+            f"%20AND%20base_count%3E%3D{int(os.environ.get('MIN_BASE_PAIRS', '0'))}"
+            # Pagination
             f"&limit={limit}"
             f"&offset={offset}"
-            f"&result=read_run"
-            f"&fields=all"
         )
         logger.debug(url)
         result = request('GET', url)
@@ -119,22 +123,25 @@ def query_ENA(taxon: pandas.Series) -> None:
             raise ENAError(result.text)
 
         df = pandas.read_json(result.text)
-        logger.debug(df.first_public)
         logger.debug(f"Fetched {len(df)} records.")
 
         if type(df) is not pandas.DataFrame:
             break
-        if records is None:
-            records = df
-        else:
+        if isinstance(records, pandas.DataFrame):
             records = pandas.concat([df, records], ignore_index=True)
+        else:
+            records = df
 
         if len(df) >= limit:
             offset = offset + limit
         else:
             break
 
-    logger.debug(f"Found {len(records)} records.")
+    if not isinstance(records, pandas.DataFrame):
+        logger.info(f"No records found that pass filters.")
+        return
+
+    logger.info(f"Found {len(records)} records that pass filters.")
 
     t_id = COLUMNS[Tables.RECORD].TAXON.value
     r_id = COLUMNS[Tables.RECORD].ID.value
@@ -143,11 +150,13 @@ def query_ENA(taxon: pandas.Series) -> None:
     for r in range(len(records)):
         row = records.iloc[r].to_dict()
         record_ids.append((
-            f"{row[COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value]}_"
-            f"{row[COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value]}_"
-            f"{row[COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value]}"
+            f"{row[COLUMNS[Tables.RECORD].SAMPLE_ACCESSION.value]}_"
+            f"{row[COLUMNS[Tables.RECORD].EXPERIMENT_ACCESSION.value]}_"
+            f"{row[COLUMNS[Tables.RECORD].RUN_ACCESSION.value]}"
         ))
     records[r_id] = record_ids
+    records[COLUMNS[Tables.RECORD].TAXON.value] = taxon_id
+    records[COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value] = AssemblyStatus.WAITING.value
 
     with get_engine().connect() as conn:
         existing_records = pandas.read_sql(sqlalchemy.text((
@@ -162,43 +171,10 @@ def query_ENA(taxon: pandas.Series) -> None:
     if len(new_records) > 0:
         try:
             new_records = mapbox_country_lookup(new_records)
-            new_records[COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
-
-            # Slim table for saving space
-            slim_records = new_records.filter(items=[
-                COLUMNS[Tables.RECORD_DETAILS].RECORD.value,
-                COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value,
-                COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value,
-                COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value,
-                COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value,
-                COLUMNS[Tables.RECORD_DETAILS].FASTQ_FTP.value
-            ])
-            slim_records = slim_records.copy()
-            slim_records = slim_records.rename(columns={
-                COLUMNS[Tables.RECORD_DETAILS].RECORD.value:
-                    COLUMNS[Tables.RECORD].ID.value,
-                COLUMNS[Tables.RECORD_DETAILS].SAMPLE_ACCESSION.value:
-                    COLUMNS[Tables.RECORD].SAMPLE_ACCESSION.value,
-                COLUMNS[Tables.RECORD_DETAILS].RUN_ACCESSION.value:
-                    COLUMNS[Tables.RECORD].RUN_ACCESSION.value,
-                COLUMNS[Tables.RECORD_DETAILS].EXPERIMENT_ACCESSION.value:
-                    COLUMNS[Tables.RECORD].EXPERIMENT_ACCESSION.value,
-                COLUMNS[Tables.RECORD_DETAILS].TIME_FETCHED.value:
-                    COLUMNS[Tables.RECORD].TIME_FETCHED.value,
-                COLUMNS[Tables.RECORD_DETAILS].FASTQ_FTP.value:
-                    COLUMNS[Tables.RECORD].FASTQ_FTP.value
-            })
-            slim_records[COLUMNS[Tables.RECORD].TAXON.value] = taxon_id
-            slim_records[COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value] = AssemblyStatus.WAITING.value
+            new_records[COLUMNS[Tables.RECORD].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
 
             with get_engine().connect() as conn:
                 new_records.to_sql(
-                    name=Tables.RECORD_DETAILS.value,
-                    con=conn,
-                    if_exists='append',
-                    index=False
-                )
-                slim_records.to_sql(
                     name=Tables.RECORD.value,
                     con=conn,
                     if_exists='append',
@@ -219,12 +195,14 @@ def mapbox_country_lookup(df: pandas.DataFrame) -> pandas.DataFrame:
     """
     # Select entries with no lat or lon but with country
     logger.debug('Mapbox lookup')
-    df[COLUMNS[Tables.RECORD_DETAILS].LAT_LON_INTERPOLATED.value] = False
+    logger.debug('SKIPPED')
+    df[COLUMNS[Tables.RECORD].LAT_LON_INTERPOLATED.value] = False
+    return df
 
     subset = df.loc[
-        (df[COLUMNS[Tables.RECORD_DETAILS].LATITUDE.value].isna() |
-         df[COLUMNS[Tables.RECORD_DETAILS].LONGITUDE.value].isna()) &
-        df[COLUMNS[Tables.RECORD_DETAILS].COUNTRY.value].notna(), ]
+        (df[COLUMNS[Tables.RECORD].LATITUDE.value].isna() |
+         df[COLUMNS[Tables.RECORD].LONGITUDE.value].isna()) &
+        df[COLUMNS[Tables.RECORD].COUNTRY.value].notna(), ]
     logger.debug(f"{len(subset)} rows require interpolation")
 
     # Load country -> lat/lon mappings from database
@@ -240,10 +218,10 @@ def mapbox_country_lookup(df: pandas.DataFrame) -> pandas.DataFrame:
     cc_country = COLUMNS[Tables.COUNTRY_COORDINATES].COUNTRY.value
     cc_lat = COLUMNS[Tables.COUNTRY_COORDINATES].LATITUDE.value
     cc_lon = COLUMNS[Tables.COUNTRY_COORDINATES].LONGITUDE.value
-    rd_country = COLUMNS[Tables.RECORD_DETAILS].COUNTRY.value
-    rd_lat = COLUMNS[Tables.RECORD_DETAILS].LATITUDE.value
-    rd_lon = COLUMNS[Tables.RECORD_DETAILS].LONGITUDE.value
-    rd_interp = COLUMNS[Tables.RECORD_DETAILS].LAT_LON_INTERPOLATED.value
+    rd_country = COLUMNS[Tables.RECORD].COUNTRY.value
+    rd_lat = COLUMNS[Tables.RECORD].LATITUDE.value
+    rd_lon = COLUMNS[Tables.RECORD].LONGITUDE.value
+    rd_interp = COLUMNS[Tables.RECORD].LAT_LON_INTERPOLATED.value
 
     for c in subset.country.unique():
         logger.debug(f'Mapbox processing for {c}')
@@ -300,77 +278,6 @@ def mapbox_country_lookup(df: pandas.DataFrame) -> pandas.DataFrame:
 
     logger.debug("Interpolation complete")
     return df
-
-
-def filter_records() -> None:
-    """
-    Fetch records for any record numbers without a passed_filter decision and apply filters.
-    """
-    record = COLUMNS[Tables.RECORD].ID.value
-    r_id = COLUMNS[Tables.RECORD_DETAILS].RECORD.value
-    passed_filter = COLUMNS[Tables.RECORD].PASSED_FILTER.value
-    filter_failed = COLUMNS[Tables.RECORD].FILTER_FAILED.value
-    waiting_since = COLUMNS[Tables.RECORD].WAITING_SINCE.value
-    with get_engine().connect() as conn:
-        records = pandas.read_sql(
-            sql=sqlalchemy.text((
-                f"SELECT {record}, {passed_filter} FROM {Tables.RECORD.value} WHERE "
-                f"{passed_filter} IS NULL"
-            )),
-            con=conn
-        )
-
-    if len(records) == 0:
-        return
-    else:
-        logger.info(f"Found {len(records)} records awaiting filtering.")
-
-    # Check records against filters
-    with get_engine().connect() as conn:
-        records = pandas.read_sql(
-            sql=sqlalchemy.text((
-                f"SELECT * FROM {Tables.RECORD_DETAILS.value} WHERE "
-                f"{r_id} IN "
-                f"{tuple(records[record])}"
-            )),
-            con=conn
-        )
-
-    filters.apply_filters(records=records, col_name_passed=passed_filter, col_name_failed=filter_failed)
-
-    # Save results
-    # rename record number
-    new_records = records[[r_id, passed_filter, filter_failed]]
-    with Session(get_engine()) as session:
-        session.execute(
-            sqlalchemy.text((
-                f"UPDATE {Tables.RECORD.value} "
-                f"SET "
-                f"{record}=:id, {passed_filter}=:fltr, {filter_failed}=:fail, {waiting_since} = NOW() "
-                f"WHERE {record}=:id"
-            )),
-            [{'id': x[0], 'fltr': x[1], 'fail': x[2]} for x in new_records.itertuples(index=False)]
-        )
-        session.commit()
-        session.execute(
-            sqlalchemy.text((
-                f"UPDATE {Tables.RECORD.value} "
-                f"SET {COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value} = '{AssemblyStatus.SKIPPED.value}' "
-                f"WHERE {passed_filter} IS FALSE"
-            ))
-        )
-        # Let the api know the records are waiting
-        session.execute(
-            sqlalchemy.text((
-                f"UPDATE {Tables.RECORD.value} "
-                f"SET {waiting_since} = NOW() "
-                f" WHERE {passed_filter} = True AND {waiting_since} IS NULL"
-            ))
-        )
-        session.commit()
-
-    if len(records) > 0:
-        logger.info(f"{len(records.loc[records[passed_filter]])}/{len(records)} new records acceptable for assembly.")
 
 
 def release_records() -> None:

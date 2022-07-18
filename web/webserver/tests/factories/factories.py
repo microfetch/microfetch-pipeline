@@ -1,7 +1,7 @@
 import factory
 import faker
 import django.conf.global_settings
-from ...models import Taxons, Records, RecordDetails, AssemblyStatus
+from ...models import Taxons, Records, AssemblyStatus
 
 fake = faker.Faker(django.conf.global_settings.LANGUAGE_CODE)
 
@@ -46,13 +46,12 @@ class RecordFactory(factory.django.DjangoModelFactory):
         )
 
     taxon = factory.SubFactory(TaxonFactory)
-    accession = factory.LazyAttribute(lambda _: random_accession('ERR'))
     experiment_accession = factory.LazyAttribute(lambda _: random_accession('ERX'))
-    run_accession = accession
+    run_accession = factory.LazyAttribute(lambda _: random_accession('ERR'))
     sample_accession = factory.LazyAttribute(lambda _: random_accession('SAME'))
-    secondary_sample_accession = factory.LazyAttribute(lambda _: random_accession('ERS'))
     id = factory.LazyAttribute(lambda a: f"{a.experiment_accession}_{a.run_accession}_{a.sample_accession}")
     fastq_ftp = factory.LazyAttribute(lambda _: f"{fake.url(['ftp'])};{fake.url(['ftp'])}")
+    lat_lon_interpolated = False
 
     @factory.lazy_attribute
     def time_fetched(self):
@@ -80,10 +79,5 @@ class RecordFactory(factory.django.DjangoModelFactory):
     completed = factory.LazyAttributeSequence(lambda o, n: o.accepted and n % 4 == 0)
     assembled = factory.LazyAttributeSequence(lambda o, n: o.accepted and n % 2 == 0)
 
-
-class RecordDetailsFactory(factory.django.DjangoModelFactory):
-    class Meta:
-        model = RecordDetails
-        django_get_or_create = ('record_id',)
 
 

@@ -3,7 +3,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APITestCase
 from ..models import Taxons, AssemblyStatus
-from .factories.factories import RecordFactory, RecordDetailsFactory
+from .factories.factories import RecordFactory
 
 logger = logging.getLogger(__file__)
 logger.setLevel(logging.INFO)
@@ -28,8 +28,6 @@ class TaxonTests(APITestCase):
 class RecordTests(APITestCase):
     def setUp(self):
         self.records = RecordFactory.create_batch(100)
-        for record in self.records:
-            RecordDetailsFactory.create(record_id=record.id)
 
         self.record_in_progress = RecordFactory.create(
             filtered=True,
@@ -43,8 +41,6 @@ class RecordTests(APITestCase):
             completed=True,
             assembled=False
         )
-        RecordDetailsFactory.create(record_id=self.record_in_progress.id)
-        RecordDetailsFactory.create(record_id=self.record_complete.id)
 
         self.assembly_payload = {
             "assembly_result": "success",

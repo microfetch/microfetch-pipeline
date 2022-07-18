@@ -3,148 +3,180 @@ info:
   title: ''
   version: ''
 paths:
-  /api/taxons/:
+  /records/:
     get:
-      operationId: listListTaxons
-      description: View all tracked taxons.
+      operationId: listRecords
+      description: ''
+      parameters:
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 123
+                  next:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?offset=400&limit=100
+                  previous:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?offset=200&limit=100
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /records/awaiting_assembly/:
+    get:
+      operationId: awaitingAssemblyRecord
+      description: 'View records which are awaiting assembly.
+
+
+        Related action endpoints are included in each record''s **action_links**.
+
+        These action links allow assembly pipeline runners to interface effectively
+
+        with the API:
+
+
+        If a record awaiting assembly is accepted for an assembly attempt,
+
+        this API should be notified to avoid redundant assembly attempts.
+
+        The API can be notified by sending an **HTTP GET request** to the
+
+        `/records/{id}/register_assembly_attempt/` endpoint.
+
+
+        Records marked as undergoing assembly will not be included in future
+
+        requests to this endpoint for some time.
+
+        The hold duration depends on runtime configuration, but is 24 hours by default.
+
+
+        Once assembly is complete, the API should be notified of the result
+
+        using the **POST** `/records/{id}/report_assembly_result/` endpoint.
+
+        That endpoint accepts JSON input with the following fields:
+
+
+        **assembly_result** [required]: ''success'' or ''fail''
+
+
+        **assembled_genome_url**: URL of the assembled genomic data, if applicable.
+
+
+        **assembled_genome_sha1**: SHA1 Hexdigest of the assembled genome file
+
+
+        **assembly_error_report_url**: URL of the nextflow pipeline error log for
+        failed runs.
+
+
+        **assembly_error_process**: Name (and tag) of failing pipeline process.
+
+
+        **assembly_error_exit_code**: Error code of the failing process.
+
+
+        **assembly_error_stdout**: Output of the failing process.
+
+
+        **assembly_error_stderr**: Error report from the failing process.
+
+
+        **qualifyr_report**: JSON representation of the assembly qualifyr_report.tsv
+        file.
+
+        For a full list of compatible fields, **GET** `/qualifyr_report_fields/`.'
       parameters: []
       responses:
         '200':
           content:
             application/json:
               schema:
-                type: array
-                items: {}
+                $ref: '#/components/schemas/Record'
           description: ''
       tags:
-      - api
-  /api/taxon/{taxon_id}/:
+      - records
+  /records/awaiting_screening/:
     get:
-      operationId: retrieveViewTaxon
-      description: 'View details of a id.
+      operationId: awaitingScreeningRecord
+      description: 'View records which are awaiting screening.
 
 
-        **id**: Taxonomic identifier (will include subtree)'
-      parameters:
-      - name: taxon_id
-        in: path
-        required: true
-        description: ''
-        schema:
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: ''
-      tags:
-      - api
-    put:
-      operationId: updateViewTaxon
-      description: 'Add a new id for tracking.
+        Screening results are reported by POSTing to a record''s
+
+        `action_links.report_screening_result` URL.
 
 
-        **id**: Taxonomic identifier (will include subtree)'
-      parameters:
-      - name: taxon_id
-        in: path
-        required: true
-        description: ''
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema: {}
-          application/x-www-form-urlencoded:
-            schema: {}
-          multipart/form-data:
-            schema: {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: ''
-      tags:
-      - api
-  /api/record/{record_id}/:
-    get:
-      operationId: retrieveViewRecord
-      description: 'View metadata for an ENA record.
+        POST content should be JSON and include the fields:
 
 
-        **id**: Record identifier'
-      parameters:
-      - name: record_id
-        in: path
-        required: true
-        description: ''
-        schema:
-          type: string
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: ''
-      tags:
-      - api
-    put:
-      operationId: updateViewRecord
-      description: 'Update metadata for an ENA record with an assembly attempt result.
+        **passed_screening** [required]: boolean (or string representation) of whether
+
+        the screening process was passed for the record.
 
 
-        **id**: Record identifier'
-      parameters:
-      - name: record_id
-        in: path
-        required: true
-        description: ''
-        schema:
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema: {}
-          application/x-www-form-urlencoded:
-            schema: {}
-          multipart/form-data:
-            schema: {}
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: ''
-      tags:
-      - api
-  /api/request_assembly_candidate/:
-    get:
-      operationId: listRequestAssemblyCandidates
-      description: NON-RESTFUL - Will determine the next available record for assembly
-        and return it.
+        **screening_message**: String with an (optional) message to provide more details
+
+        about the screening. If the screening fails, it can be useful to specify a
+        reason
+
+        in this field.'
       parameters: []
       responses:
         '200':
           content:
             application/json:
               schema:
-                type: array
-                items: {}
+                $ref: '#/components/schemas/Record'
           description: ''
       tags:
-      - api
-  /api/confirm_assembly_candidate/{record_id}/:
+      - records
+  /records/screened/:
     get:
-      operationId: retrieveAcceptAssemblyCandidate
-      description: 'Confirm assembly will proceed on an id
-
-
-        **id**: Record identifier'
+      operationId: screenedRecord
+      description: View records which have passed screening.
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /records/{id}/:
+    get:
+      operationId: retrieveRecord
+      description: ''
       parameters:
-      - name: record_id
+      - name: id
         in: path
         required: true
         description: ''
@@ -154,11 +186,202 @@ paths:
         '200':
           content:
             application/json:
-              schema: {}
+              schema:
+                $ref: '#/components/schemas/Record'
           description: ''
       tags:
-      - api
-  /api/qualifyr_report_fields/:
+      - records
+  /records/{id}/register_assembly_attempt/:
+    get:
+      operationId: registerAssemblyAttemptRecord
+      description: 'Mark a record as undergoing assembly.
+
+
+        Records marked as undergoing assembly will not be included in future
+
+        requests to this endpoint for some time.
+
+        The hold duration depends on runtime configuration, but is 24 hours by default.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /taxons/:
+    get:
+      operationId: listTaxons
+      description: ''
+      parameters:
+      - name: limit
+        required: false
+        in: query
+        description: Number of results to return per page.
+        schema:
+          type: integer
+      - name: offset
+        required: false
+        in: query
+        description: The initial index from which to return the results.
+        schema:
+          type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                    example: 123
+                  next:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?offset=400&limit=100
+                  previous:
+                    type: string
+                    nullable: true
+                    format: uri
+                    example: http://api.example.org/accounts/?offset=200&limit=100
+                  results:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+    post:
+      operationId: createTaxons
+      description: ''
+      parameters: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+  /taxons/{id}/:
+    get:
+      operationId: retrieveTaxons
+      description: ''
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: A unique value identifying this taxons.
+        schema:
+          type: string
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+    put:
+      operationId: updateTaxons
+      description: ''
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: A unique value identifying this taxons.
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+    patch:
+      operationId: partialUpdateTaxons
+      description: ''
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: A unique value identifying this taxons.
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Taxon'
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Taxon'
+          description: ''
+      tags:
+      - taxons
+    delete:
+      operationId: destroyTaxons
+      description: ''
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: A unique value identifying this taxons.
+        schema:
+          type: string
+      responses:
+        '204':
+          description: ''
+      tags:
+      - taxons
+  /qualifyr_report_fields/:
     get:
       operationId: listQualifyrReportFields
       description: A list of all acceptable fields for inclusion in a Qualifyr Report
@@ -173,4 +396,498 @@ paths:
                 items: {}
           description: ''
       tags:
-      - api
+      - qualifyr-report-fields
+  /records/{id}/report_assembly_result/:
+    post:
+      operationId: reportAssemblyResultRecord
+      description: 'Update metadata for an ENA record with an assembly result.
+
+
+        POST content should be JSON with the following fields:
+
+
+        **assembly_result** [required]: ''success'' or ''fail''
+
+
+        **assembled_genome_url**: URL of the assembled genomic data, if applicable.
+
+
+        **assembled_genome_sha1**: SHA1 Hexdigest of the assembled genome file
+
+
+        **assembly_error_report_url**: URL of the nextflow pipeline error log for
+        failed runs.
+
+
+        **assembly_error_process**: Name (and tag) of failing pipeline process.
+
+
+        **assembly_error_exit_code**: Error code of the failing process.
+
+
+        **assembly_error_stdout**: Output of the failing process.
+
+
+        **assembly_error_stderr**: Error report from the failing process.
+
+
+        **qualifyr_report**: JSON representation of the assembly qualifyr_report.tsv
+        file.
+
+        For a full list of compatible fields, **GET** `/qualifyr_report_fields/`.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Record'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Record'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Record'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+  /records/{id}/report_screening_result/:
+    post:
+      operationId: reportScreeningResultRecord
+      description: 'Update metadata for an ENA record with a screening result.
+
+
+        POST content should be JSON and include the fields:
+
+
+        **passed_screening** [required]: boolean (or string representation) of whether
+
+        the screening process was passed for the record.
+
+
+        **screening_message**: String with an (optional) message to provide more details
+
+        about the screening. If the screening fails, it can be useful to specify a
+        reason
+
+        in this field.'
+      parameters:
+      - name: id
+        in: path
+        required: true
+        description: ''
+        schema:
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Record'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/Record'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/Record'
+      responses:
+        '201':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
+components:
+  schemas:
+    Record:
+      type: object
+      properties:
+        url:
+          type: string
+          readOnly: true
+        id:
+          type: string
+          readOnly: true
+        taxon:
+          type: string
+          readOnly: true
+        qualifyr_report:
+          type: object
+          properties:
+            sample_name:
+              type: string
+              nullable: true
+              maxLength: 256
+            result:
+              type: string
+              nullable: true
+              maxLength: 256
+            bactinspector_result_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            bactinspector_result_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            bactinspector_species_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            bactinspector_species_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            confindr_contam_status_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            confindr_contam_status_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            confindr_percentage_contamination_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            confindr_percentage_contamination_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Adapter_Content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Adapter_Content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Basic_Statistics_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Basic_Statistics_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Overrepresented_sequences_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Overrepresented_sequences_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_base_N_content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_base_N_content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_base_sequence_quality_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_base_sequence_quality_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_sequence_GC_content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_sequence_GC_content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_sequence_quality_scores_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Per_sequence_quality_scores_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Sequence_Duplication_Levels_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Sequence_Duplication_Levels_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Sequence_Length_Distribution_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_1_Sequence_Length_Distribution_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Adapter_Content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Adapter_Content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Basic_Statistics_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Basic_Statistics_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Overrepresented_sequences_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Overrepresented_sequences_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_base_N_content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_base_N_content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_base_sequence_quality_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_base_sequence_quality_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_sequence_GC_content_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_sequence_GC_content_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_sequence_quality_scores_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Per_sequence_quality_scores_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Sequence_Duplication_Levels_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Sequence_Duplication_Levels_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Sequence_Length_Distribution_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            fastqc_2_Sequence_Length_Distribution_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            file_size_check_size_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            file_size_check_size_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_Ns_per_100_kbp_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_Ns_per_100_kbp_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_contigs_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_contigs_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_GC_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_GC_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_N50_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_N50_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_Total_length_metric_value:
+              type: string
+              nullable: true
+              maxLength: 256
+            quast_Total_length_check_result:
+              type: string
+              nullable: true
+              maxLength: 256
+          readOnly: true
+        action_links:
+          type: string
+          readOnly: true
+        time_fetched:
+          type: string
+          format: date-time
+          readOnly: true
+        accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        experiment_accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        run_accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        sample_accession:
+          type: string
+          nullable: true
+          maxLength: 40
+        fastq_ftp:
+          type: string
+          nullable: true
+          maxLength: 4096
+        lat:
+          type: string
+          nullable: true
+          maxLength: 256
+        lon:
+          type: string
+          nullable: true
+          maxLength: 256
+        country:
+          type: string
+          nullable: true
+          maxLength: 4096
+        collection_date:
+          type: string
+          nullable: true
+          maxLength: 1024
+        first_public:
+          type: string
+          nullable: true
+          maxLength: 1024
+        lat_lon_interpolated:
+          type: boolean
+        passed_filter:
+          type: boolean
+          nullable: true
+        filter_failed:
+          type: string
+          nullable: true
+          maxLength: 1024
+        waiting_since:
+          type: string
+          format: date-time
+          nullable: true
+        assembly_result:
+          enum:
+          - skipped
+          - waiting
+          - in progress
+          - fail
+          - success
+          type: string
+        passed_screening:
+          type: boolean
+          nullable: true
+        screening_message:
+          type: string
+          nullable: true
+          maxLength: 4096
+        assembled_genome_url:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembled_genome_sha1:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_report_url:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_process:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_exit_code:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_stdout:
+          type: string
+          nullable: true
+          maxLength: 1024
+        assembly_error_stderr:
+          type: string
+          nullable: true
+          maxLength: 1024
+    Taxon:
+      type: object
+      properties:
+        id:
+          type: integer
+          maximum: 9223372036854775807
+          format: int64
+          minimum: 0
+        url:
+          type: string
+          readOnly: true
+        records:
+          type: array
+          items:
+            type: string
+          readOnly: true
+        post_assembly_filters:
+          type: object
+          nullable: true
+        last_updated:
+          type: string
+          format: date-time
+          readOnly: true
+        time_added:
+          type: string
+          format: date-time
+          readOnly: true
+      required:
+      - id

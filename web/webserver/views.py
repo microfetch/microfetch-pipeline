@@ -1,14 +1,20 @@
-from django.utils.datastructures import MultiValueDictKeyError
-from django.http import HttpRequest, HttpResponse, JsonResponse, Http404
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.urls import reverse
 from django.shortcuts import render, redirect
 from django.utils import timezone
+from django.db.models import Q, QuerySet
 from django_db_logger.models import StatusLog
+from rest_framework.response import Response
+from functools import wraps
+import rest_framework.decorators
 import rest_framework.views
+import rest_framework.viewsets
+import rest_framework.exceptions
+import rest_framework.mixins
 import json
 import logging
-from .models import Taxons, Records, RecordDetails, AssemblyStatus, QualifyrReport, name_map, qualifyr_name_map
-from .serializers import TaxonSerializer, RecordSerializer, RecordDetailSerializer
+from .models import Taxons, Records, AssemblyStatus, QualifyrReport, name_map, qualifyr_name_map
+from .serializers import TaxonSerializer, RecordSerializer
 
 logger = logging.getLogger(__file__)
 
@@ -17,7 +23,27 @@ class ValidationError(BaseException):
     pass
 
 
-LOG_LEVEL_NAMES={
+def paginate(func):
+    """
+    Allow ModelViewSet custom list actions to be paginated.
+    https://stackoverflow.com/a/56609821
+    """
+    @wraps(func)
+    def inner(self, *args, **kwargs):
+        queryset = func(self, *args, **kwargs)
+        assert isinstance(queryset, (list, QuerySet)), "apply_pagination expects a List or a QuerySet"
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    return inner
+
+
+LOG_LEVEL_NAMES = {
     logging.NOTSET: 'NotSet',
     logging.DEBUG: 'Debug',
     logging.INFO: 'Info',
@@ -61,104 +87,248 @@ def post(request: HttpRequest) -> HttpResponse:
     return redirect(reverse("index"))
 
 
-class ListTaxons(rest_framework.views.APIView):
+class HyperlinkedViewSet(rest_framework.viewsets.GenericViewSet):
+    """
+    Wrapper for GenericViewSet that adds the request into the serializer context.
+    """
+    def get_serializer_context(self):
+        context = super(HyperlinkedViewSet, self).get_serializer_context()
+        context.update({"request": self.request})
+        return context
 
-    def get(self, request: HttpRequest) -> JsonResponse:
-        """
-        View all tracked taxons.
-        """
-        taxons = Taxons.objects.all()
-        serializer = TaxonSerializer(taxons, many=True)
-        return JsonResponse(serializer.data, safe=False)
+
+class TaxonViewSet(
+    rest_framework.viewsets.ModelViewSet,
+    HyperlinkedViewSet
+):
+    serializer_class = TaxonSerializer
+    queryset = Taxons.objects.all()
 
 
-class ViewTaxon(rest_framework.views.APIView):
-    def put(self, request: HttpRequest, taxon_id: str, **kwargs) -> JsonResponse:
-        """
-        Add a new id for tracking.
+class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedViewSet):
+    serializer_class = RecordSerializer
 
-        **id**: Taxonomic identifier (will include subtree)
-        """
-        try:
-            if "filters" in request.data.keys() and 'filters' in request.data['filters'].keys():
-                filters = {"filters": request.data['filters']}
+    def _filter_queryset(
+            self,
+            taxon_id: list = None,
+            assembly_status: list = None,
+            passed_screening: list = None,
+            passed_filter: list = None
+    ):
+        def _compile_values(cs_list: list) -> tuple:
+            options = []
+            if 'true' in cs_list:
+                options.append(True)
+            if 'false' in cs_list:
+                options.append(False)
+            return 'null' in cs_list, options
+
+        queryset = Records.objects.all()
+        if taxon_id is not None:
+            queryset = queryset.filter(taxon_id__in=taxon_id)
+        if assembly_status is not None:
+            queryset = queryset.filter(assembly_result__in=assembly_status)
+        if passed_screening is not None:
+            null, values = _compile_values(passed_screening)
+            if null:
+                queryset = queryset.filter(Q(passed_screening__isnull=True) | Q(passed_screening__in=values))
             else:
-                filters = None
-            Taxons.objects.update_or_create(
-                id=int(taxon_id),
-                post_assembly_filters=filters
-            )
-            logger.info(f"Added taxon id {taxon_id} via API call")
-        except (ValueError, MultiValueDictKeyError) as e:
-            logger.warning(f"Invalid taxon id '{taxon_id}' NOT ADDED.")
-            return JsonResponse({'error': e}, status=400)
-        return self.get(request=request, taxon_id=taxon_id, status=201, **kwargs)
+                queryset = queryset.filter(passed_screening__in=values)
+        if passed_filter is not None:
+            null, values = _compile_values(passed_filter)
+            if null:
+                queryset = queryset.filter(Q(passed_filter__isnull=True) | Q(passed_filter__in=values))
+            else:
+                queryset = queryset.filter(passed_filter__in=values)
+        return queryset
 
-    def get(self, request: HttpRequest, taxon_id: str, status: int = 200, **kwargs):
+    # List methods
+    def get_queryset(self):
         """
-        View details of a id.
+        Returns Records matching the querystring parameters.
 
-        **id**: Taxonomic identifier (will include subtree)
+        Available querystring arguments (all optional):
+
+        **taxon_id**: Taxon identifier; comma-separate for multiple
+
+        **assembly_status**: Values: 'waiting', 'skipped', 'in_progress', 'success', 'fail'; comma-separate for multiple
+
+        **passed_screening**: Values: 'true', 'false', 'null'; comma-separated
+
+        **passed_filter**: Values: 'true', 'false', 'null'; comma-separated
         """
-        taxon = Taxons.objects.get(id=taxon_id)
-        records = Records.objects.filter(taxon_id=taxon_id)
-        taxon_serialized = TaxonSerializer(taxon)
-        records_serialized = RecordSerializer(records, many=True)
-        return JsonResponse({
-            **taxon_serialized.data,
-            'records': records_serialized.data
-        }, status=status)
-
-
-class ViewRecord(rest_framework.views.APIView):
-
-    def _record_details(self, record_id: str) -> object:
         try:
-            accession = Records.objects.get(id=record_id)
-            details = RecordDetails.objects.filter(record_id=record_id)
-        except (Records.DoesNotExist, RecordDetails.DoesNotExist):
-            raise Http404
-        return {
-            **RecordSerializer(accession).data,
-            'details': RecordDetailSerializer(details[0]).data
-        }
+            taxon_id = self.request.query_params.get('taxon_id').split(',')
+        except AttributeError:
+            taxon_id = None
+        try:
+            assembly_status = self.request.query_params.get('assembly_status').replace('_', ' ').lower().split(',')
+        except AttributeError:
+            assembly_status = None
+        try:
+            passed_screening = self.request.query_params.get('passed_screening').lower().split(',')
+        except AttributeError:
+            passed_screening = None
+        try:
+            passed_filter = self.request.query_params.get('passed_filter').lower().split(',')
+        except AttributeError:
+            passed_filter = None
+        return self._filter_queryset(
+            taxon_id=taxon_id,
+            assembly_status=assembly_status,
+            passed_screening=passed_screening,
+            passed_filter=passed_filter
+        )
 
-    def get(self, request: HttpRequest, record_id: str, **kwargs):
+    @rest_framework.decorators.action(methods=['get'], detail=False, serializer_class=RecordSerializer)
+    @paginate
+    def awaiting_assembly(self, request: HttpRequest, **kwargs):
         """
-        View metadata for an ENA record.
+        View records which are awaiting assembly.
 
-        **id**: Record identifier
+        Related action endpoints are included in each record's **action_links**.
+        These action links allow assembly pipeline runners to interface effectively
+        with the API:
+
+        If a record awaiting assembly is accepted for an assembly attempt,
+        this API should be notified to avoid redundant assembly attempts.
+        The API can be notified by sending an **HTTP GET request** to the
+        `/records/{id}/register_assembly_attempt/` endpoint.
+
+        Records marked as undergoing assembly will not be included in future
+        requests to this endpoint for some time.
+        The hold duration depends on runtime configuration, but is 24 hours by default.
+
+        Once assembly is complete, the API should be notified of the result
+        using the **POST** `/records/{id}/report_assembly_result/` endpoint.
+        That endpoint accepts JSON input with the following fields:
+
+        **assembly_result** [required]: 'success' or 'fail'
+
+        **assembled_genome_url**: URL of the assembled genomic data, if applicable.
+
+        **assembled_genome_sha1**: SHA1 Hexdigest of the assembled genome file
+
+        **assembly_error_report_url**: URL of the nextflow pipeline error log for failed runs.
+
+        **assembly_error_process**: Name (and tag) of failing pipeline process.
+
+        **assembly_error_exit_code**: Error code of the failing process.
+
+        **assembly_error_stdout**: Output of the failing process.
+
+        **assembly_error_stderr**: Error report from the failing process.
+
+        **qualifyr_report**: JSON representation of the assembly qualifyr_report.tsv file.
+        For a full list of compatible fields, **GET** `/qualifyr_report_fields/`.
+
         """
-        return JsonResponse(self._record_details(record_id=record_id))
+        return self._filter_queryset(assembly_status=['waiting'])
 
-    def put(self, request: HttpRequest, record_id: str, **kwargs):
+    @rest_framework.decorators.action(methods=['get'], detail=False)
+    @paginate
+    def awaiting_screening(self, request: HttpRequest, **kwargs):
         """
-        Update metadata for an ENA record with an assembly attempt result.
+        View records which are awaiting screening.
 
-        **id**: Record identifier
+        Screening results are reported by POSTing to a record's
+        `action_links.report_screening_result` URL.
+
+        POST content should be JSON and include the fields:
+
+        **passed_screening** [required]: boolean (or string representation) of whether
+        the screening process was passed for the record.
+
+        **screening_message**: String with an (optional) message to provide more details
+        about the screening. If the screening fails, it can be useful to specify a reason
+        in this field.
+        """
+        return self._filter_queryset(assembly_status=['success'], passed_screening=['false'])
+
+    @rest_framework.decorators.action(methods=['get'], detail=False)
+    @paginate
+    def screened(self, request: HttpRequest, **kwargs):
+        """
+        View records which have passed screening.
+        """
+        return self._filter_queryset(passed_screening=['true'])
+
+    # Update methods
+    @rest_framework.decorators.action(methods=['get'], detail=True)
+    def register_assembly_attempt(self, request: HttpRequest, pk: str, **kwargs):
+        """
+        Mark a record as undergoing assembly.
+
+        Records marked as undergoing assembly will not be included in future
+        requests to this endpoint for some time.
+        The hold duration depends on runtime configuration, but is 24 hours by default.
+        """
+        record = Records.objects.get(id=pk)
+        if record.assembly_result == AssemblyStatus.WAITING.value:
+            record.assembly_result = AssemblyStatus.IN_PROGRESS.value
+            record.waiting_since = timezone.now()
+            record.save()
+            return Response(self.get_serializer(record, context=self.get_serializer_context()).data)
+        raise rest_framework.exceptions.ValidationError('Invalid assembly candidate. This record may already be reserved.')
+
+    @rest_framework.decorators.action(methods=['post'], detail=True)
+    def report_assembly_result(self, request: HttpRequest, pk: str, **kwargs):
+        """
+        Update metadata for an ENA record with an assembly result.
+
+        POST content should be JSON with the following fields:
+
+        **assembly_result** [required]: 'success' or 'fail'
+
+        **assembled_genome_url**: URL of the assembled genomic data, if applicable.
+
+        **assembled_genome_sha1**: SHA1 Hexdigest of the assembled genome file
+
+        **assembly_error_report_url**: URL of the nextflow pipeline error log for failed runs.
+
+        **assembly_error_process**: Name (and tag) of failing pipeline process.
+
+        **assembly_error_exit_code**: Error code of the failing process.
+
+        **assembly_error_stdout**: Output of the failing process.
+
+        **assembly_error_stderr**: Error report from the failing process.
+
+        **qualifyr_report**: JSON representation of the assembly qualifyr_report.tsv file.
+        For a full list of compatible fields, **GET** `/qualifyr_report_fields/`.
         """
         errors = []
         data = request.data
-        if not 'assembly_result' in data.keys():
+        if 'assembly_result' not in data.keys():
             errors.append('Field assembly_result must be specified.')
         elif data['assembly_result'] not in [s.value for s in AssemblyStatus]:
             errors.append(f"Unrecognised assembly_result '{data['assembly_result']}'.")
 
         try:
-            record = Records.objects.get(id=record_id)
+            record = Records.objects.get(id=pk)
             if record.assembly_result != AssemblyStatus.IN_PROGRESS.value:
-                errors.append(f'Record {record_id} is not marked for assembly.')
+                errors.append(f'Record {pk} is not marked for assembly.')
         except Records.DoesNotExist:
-            errors.append(f"No record found with id {record_id}")
+            errors.append(f"No record found with id {pk}")
 
         if len(errors) > 0:
-            return JsonResponse({'error': errors}, status=400)
+            raise rest_framework.exceptions.ValidationError(errors)
 
         record.assembly_result = data['assembly_result']
         if 'assembled_genome_url' in data.keys():
             record.assembled_genome_url = data['assembled_genome_url']
+        if 'assembled_genome_sha1' in data.keys():
+            record.assembled_genome_sha1 = data['assembled_genome_sha1']
         if 'assembly_error_report_url' in data.keys():
             record.assembly_error_report_url = data['assembly_error_report_url']
+        if 'assembly_error_process' in data.keys():
+            record.assembly_error_process = data['assembly_error_process']
+        if 'assembly_error_exit_code' in data.keys():
+            record.assembly_error_exit_code = data['assembly_error_exit_code']
+        if 'assembly_error_stdout' in data.keys():
+            record.assembly_error_stdout = data['assembly_error_stdout']
+        if 'assembly_error_stderr' in data.keys():
+            record.assembly_error_stderr = data['assembly_error_stderr']
         record.save()
 
         # Map the qualifyr_report to a database entry if it exists
@@ -170,96 +340,47 @@ class ViewRecord(rest_framework.views.APIView):
             logger.debug(report)
             QualifyrReport.objects.create(record_id=record.id, **report)
 
-        return HttpResponse(status=204)
+        return Response(self.get_serializer(record, context=self.get_serializer_context()).data)
 
-
-class RequestAssemblyCandidate(rest_framework.views.APIView):
-    def get(self, request: HttpRequest, **kwargs) -> [JsonResponse, HttpResponse]:
+    @rest_framework.decorators.action(methods=['post'], detail=True)
+    def report_screening_result(self, request: HttpRequest, pk: str, **kwargs):
         """
-        NON-RESTFUL - Will determine the next available record for assembly and return it.
-        TODO: Would be more restful to return all, let client choose, and have client reserve via
-            a GET /api/confirm_assembly_candidate/ (can return non-200 status code if already reserved).
+        Update metadata for an ENA record with a screening result.
 
-        The record will be marked as 'under consideration'.
-        If the request is not confirmed within ten minutes, the record will be unlocked and
-        may be presented in response to future requests.
+        POST content should be JSON and include the fields:
 
-        Checking out a record in this way obliges you to attempt to assemble the genome and
-        report the result using this API.
+        **passed_screening** [required]: boolean (or string representation) of whether
+        the screening process was passed for the record.
+
+        **screening_message**: String with an (optional) message to provide more details
+        about the screening. If the screening fails, it can be useful to specify a reason
+        in this field.
         """
-        candidates = Records.objects.filter(
-            waiting_since__isnull=False,
-            passed_filter=True,
-            assembly_result__isnull=True
-        )
-        if len(candidates) > 0:
-            candidate = candidates.order_by('waiting_since')[0]
-            candidate.assembly_result = AssemblyStatus.UNDER_CONSIDERATION.value
-            candidate.waiting_since = timezone.now()
-            candidate.save()
-            serializer = RecordSerializer(candidate)
-            try:
-                filters = Taxons.objects.get(taxon_id=candidate.taxon_id_id).post_assembly_filters
-            except BaseException:
-                filters = None
-
-            return JsonResponse({
-                **serializer.data,
-                'post_assembly_filters': filters,
-                'accept_url': reverse('assembly_confirm', args=(candidate.id,)),
-                'upload_url': reverse('record', args=(candidate.id,)),
-                'upload_fields': {
-                    'assembly_result': {
-                        'description': f"'{AssemblyStatus.FAIL.value}' or '{AssemblyStatus.SUCCESS.value}'.",
-                        'required': True
-                    },
-                    'assembled_genome_url': {
-                        'description': "URL of the assembled genomic data, if applicable.",
-                        'required': False
-                    },
-                    'assembly_error_report_url': {
-                        'description': "URL of the nextflow pipeline error log for failed runs.",
-                        'required': False
-                    },
-                    'qualifyr_report': {
-                        'description': (
-                            "JSON representation of the assembly qualifyr_report.tsv file. "
-                            f"For a full list of compatible fields, GET {reverse('qualifyr_report_fields')}."
-                        ),
-                        'required': False
-                    }
-                },
-                'note': (
-                    "This record number is temporarily held for you. "
-                    "If you do not send a GET request to the accept_url "
-                    "within 10 minutes, the API will assume that you do not wish "
-                    "to continue assembling this record. "
-                    "Please send a GET request to the accept_url if you decide "
-                    "to attempt assembly.\n"
-                    "Sending this request means you also promise to upload your "
-                    "results to the API by sending the data via PUT request to "
-                    f"the upload_url. "
-                    f"The PUT request payload should be JSON; see upload_fields for the fields."
-                )
-            })
+        errors = []
+        data = request.data
+        if 'passed_screening' not in data.keys():
+            errors.append('Field passed_screening must be specified.')
         else:
-            return HttpResponse(status=204)
+            passed_screening = data['passed_screening']
+            if isinstance(passed_screening, str):
+                passed_screening = True if passed_screening.lower()[0] == "t" else False
+            elif not isinstance(passed_screening, bool):
+                errors.append(f"Unrecognised passed_screening value: '{data['passed_screening']}'.")
 
+        try:
+            record = Records.objects.get(id=pk)
+        except Records.DoesNotExist:
+            errors.append(f"No record found with id {pk}")
 
-class AcceptAssemblyCandidate(rest_framework.views.APIView):
-    def get(self, request: HttpRequest, record_id: str, **kwargs) -> [JsonResponse, HttpResponse]:
-        """
-        Confirm assembly will proceed on an id
+        if len(errors) > 0:
+            raise rest_framework.exceptions.ValidationError(errors)
 
-        **id**: Record identifier
-        """
-        accession = Records.objects.get(id=record_id)
-        if accession.assembly_result == AssemblyStatus.UNDER_CONSIDERATION.value:
-            accession.assembly_result = AssemblyStatus.IN_PROGRESS.value
-            accession.waiting_since = timezone.now()
-            accession.save()
-            return HttpResponse(status=204)
-        return JsonResponse({'error': 'Invalid confirm candidate.'}, status=400)
+        record.passed_screening = passed_screening
+        if 'screening_message' in data.keys():
+            record.screening_message = data['screening_message']
+        record.save()
+
+        return Response(self.get_serializer(record, context=self.get_serializer_context()).data)
 
 
 class QualifyrReportFields(rest_framework.views.APIView):

@@ -19,3 +19,7 @@ web/webserver/migrations/*
 app/taxon_tracker/__pycache__/
 
 tmp.json
+
+.notes.md
+
+web/settings/__pycache__/

@@ -102,12 +102,12 @@ def f_location_or_date(df: pandas.DataFrame) -> pandas.Series:
 
 
 FILTERS = [
-    FilterMatch('library_strategy=WGS', 'library_strategy', 'WGS'),
-    FilterMatch('instrument_platform=ILLUMINA', 'instrument_platform', 'ILLUMINA'),
-    FilterMatch('library_source=GENOMIC', 'library_source', 'GENOMIC'),
-    FilterMatch('library_layout=PAIRED', 'library_layout', 'PAIRED'),
-    Filter('base_count size', f_genome_size),
-    FilterMatch('date acceptable', 'collection_date', ["1000-01-01","1800-01-01"]),
+    # FilterMatch('library_strategy=WGS', 'library_strategy', 'WGS'),
+    # FilterMatch('instrument_platform=ILLUMINA', 'instrument_platform', 'ILLUMINA'),
+    # FilterMatch('library_source=GENOMIC', 'library_source', 'GENOMIC'),
+    # FilterMatch('library_layout=PAIRED', 'library_layout', 'PAIRED'),
+    # Filter('base_count size', f_genome_size),
+    # FilterMatch('date acceptable', 'collection_date', ["1000-01-01", "1800-01-01"]),
     # Filter('location or date', f_location_or_date)
 ]
 

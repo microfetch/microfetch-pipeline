@@ -88,7 +88,10 @@ def query_ENA(taxon: pandas.Series) -> None:
     taxon_id = taxon[COLUMNS[Tables.TAXON].ID.value]
     last_updated = taxon[COLUMNS[Tables.TAXON].LAST_UPDATED.value]
     logger.debug(f"Last updated: {last_updated}")
-    updated = last_updated.date().isoformat() if last_updated else Settings.EPOCH_DATE.value
+    if pandas.isnull(last_updated):
+        updated = Settings.EPOCH_DATE.value
+    else:
+        updated = last_updated.date().isoformat()
     logger.info(f"Fetching ENA records for taxon id {taxon_id} published since {updated}.")
     records = None
     offset = 0

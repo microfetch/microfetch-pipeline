@@ -196,6 +196,7 @@ def mapbox_country_lookup(df: pandas.DataFrame) -> pandas.DataFrame:
     # Select entries with no lat or lon but with country
     logger.debug('Mapbox lookup')
     logger.debug('SKIPPED')
+    df[COLUMNS[Tables.RECORD].PASSED_FILTER.value] = True
     df[COLUMNS[Tables.RECORD].LAT_LON_INTERPOLATED.value] = False
     return df
 

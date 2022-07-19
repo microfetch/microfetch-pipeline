@@ -766,10 +766,6 @@ components:
           type: string
           format: date-time
           readOnly: true
-        accession:
-          type: string
-          nullable: true
-          maxLength: 40
         experiment_accession:
           type: string
           nullable: true
@@ -810,7 +806,6 @@ components:
           type: boolean
         passed_filter:
           type: boolean
-          nullable: true
         filter_failed:
           type: string
           nullable: true

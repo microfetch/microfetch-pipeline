@@ -36,7 +36,7 @@ class Records(models.Model):
     collection_date = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     first_public = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     lat_lon_interpolated = models.BooleanField(default=False)
-    passed_filter = models.BooleanField(default=True)
+    passed_filter = models.BooleanField(null=True, default=True)
     filter_failed = models.CharField(null=True, max_length=LENGTH_MEDIUM)
     waiting_since = models.DateTimeField(null=True)
     assembly_result = models.CharField(

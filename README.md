@@ -84,3 +84,52 @@ The POST request body should be a JSON with:
    "screening message": "Optional string field for more details. If screening failed, use this to explain why."
 }
 ```
+
+## Environment files
+
+Environment variables are used for secrets and to hold options for the program.
+There are four environment files you can specify. 
+They all belong in the root directory.
+
+### `.env.digital_ocean`
+
+This holds the login secrets for Digital Ocean and Mapbox. 
+
+* **Required keys**
+  * `DIGITAL_OCEAN_KEY`
+  * `MAPBOX_KEY`
+
+### `.env.django`
+
+Django has several options related to security and debugging.
+This file is only required for production deployment.
+
+* Optional keys
+  * `DJANGO_SECRET_KEY`
+  * `DJANGO_ALLOWED_HOSTS`
+  * `DJANGO_LOG_LEVEL` one of the level constants from Python's `logging`
+  * `DJANGO_DEBUG` boolean
+
+### `.env.postgres`
+
+The postgres information is always required.
+
+* **Required keys**
+  * `POSTGRES_DB`
+  * `POSTGRES_USER`
+  * `POSTGRES_PASSWORD`
+  * `POSTGRES_HOST` as defined in `docker-compose.yml`
+
+### `.env.taxon_tracker`
+
+This holds the options for the program itself.
+When this file is empty, options should have sensible defaults.
+
+* Optional keys
+  * `TAXON_UPDATE_N`
+  * `TAXON_UPDATE_UNITS` a time unit (minutes, hours, days, etc) that works with `TAXON_UPDATE_N` to specify update frequency
+  * `ASSEMBLY_PERIOD_N`
+  * `ASSEMBLY_PERIOD_UNITS` as with `TAXON_UPDATE_*`, but for awaiting assembly results to be reported
+  * `ENA_REQUEST_LIMIT` the number of records to be fetched in any one query to the ENA
+  * `EPOCH_DATE` the date from which taxon records should be fetched
+  * `MIN_BASE_PAIRS` the minimum base pair count records must have to be downloaded

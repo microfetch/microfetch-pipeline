@@ -15,4 +15,3 @@ RUN pip install -r requirements.txt
 COPY requirements.test.txt /web/
 RUN pip install -r requirements.test.txt
 COPY . /web/
-RUN chmod +x init.sh

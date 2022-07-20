@@ -14,5 +14,4 @@ RUN pip install -r requirements.txt
 # Make user and copy files
 RUN useradd --home-dir /app --user-group --no-create-home appuser
 COPY --chown=appuser:appuser . .
-RUN chmod +x init.sh
 USER appuser

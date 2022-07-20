@@ -157,6 +157,20 @@ paths:
           description: ''
       tags:
       - records
+  /records/errored/:
+    get:
+      operationId: erroredRecord
+      description: View records which failed assembly.
+      parameters: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Record'
+          description: ''
+      tags:
+      - records
   /records/screened/:
     get:
       operationId: screenedRecord
@@ -806,6 +820,7 @@ components:
           type: boolean
         passed_filter:
           type: boolean
+          nullable: true
         filter_failed:
           type: string
           nullable: true

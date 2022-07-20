@@ -36,6 +36,7 @@ class RecordCols(Enum):
     RUN_ACCESSION = 'run_accession'
     SAMPLE_ACCESSION = 'sample_accession'
     FASTQ_FTP = 'fastq_ftp'
+    COLLECTION_DATE = 'collection_date'
     PASSED_FILTER = 'passed_filter'
     FILTER_FAILED = 'filter_failed'
     TIME_FETCHED = 'time_fetched'

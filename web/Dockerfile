@@ -13,3 +13,4 @@ WORKDIR /web
 COPY requirements.txt /web/
 RUN pip install -r requirements.txt
 COPY . /web/
+RUN chmod +x init.sh

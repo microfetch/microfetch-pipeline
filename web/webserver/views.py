@@ -247,6 +247,14 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
 
     @rest_framework.decorators.action(methods=['get'], detail=False)
     @paginate
+    def errored(self, request: HttpRequest, **kwargs):
+        """
+        View records which failed assembly.
+        """
+        return self._filter_queryset(assembly_status=['fail'])
+
+    @rest_framework.decorators.action(methods=['get'], detail=False)
+    @paginate
     def screened(self, request: HttpRequest, **kwargs):
         """
         View records which have passed screening.

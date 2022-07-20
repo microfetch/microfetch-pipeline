@@ -196,11 +196,21 @@ def query_ENA(taxon: pandas.Series) -> None:
 def mapbox_country_lookup(df: pandas.DataFrame) -> pandas.DataFrame:
     """
     Insert lat/lon estimations for records by consulting Mapbox if necessary.
+
+    Returns a dataframe with three additional columns:
+    passed_filter: whether the column has a lat+lon and/or collection_date after interpolation
+    filter_failed: Null if passed_filter, else 'country_or_date'
+    lat_lon_interpolated: True if lat and lon columns are changed by interpolation
+
+    Columns that may be changed:
+    lat, lon: may have values inserted by interpolation
+    assembly_result: changed to SKIPPED where passed_filter is False
     """
     # Select entries with no lat or lon but with country
     logger.debug('Mapbox lookup')
     logger.debug('SKIPPED')
     df[COLUMNS[Tables.RECORD].PASSED_FILTER.value] = True
+    df[COLUMNS[Tables.RECORD].FILTER_FAILED.value] = pandas.NA
     df[COLUMNS[Tables.RECORD].LAT_LON_INTERPOLATED.value] = False
     return df
 
@@ -280,6 +290,17 @@ def mapbox_country_lookup(df: pandas.DataFrame) -> pandas.DataFrame:
             index=False
         )
         conn.commit()
+
+    # Check records have a collection_date OR lat+lon
+    exclude = df.loc[
+        (
+                pandas.isnull(df[COLUMNS[Tables.RECORD].LATITUDE.value]) |
+                pandas.isnull(df[COLUMNS[Tables.RECORD].LONGITUDE.value])
+        ) &
+        pandas.isnull(df[COLUMNS[Tables.RECORD].COLLECTION_DATE.value])
+        ]
+    exclude[COLUMNS[Tables.RECORD].PASSED_FILTER.value] = False
+    exclude[COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value] = AssemblyStatus.SKIPPED.value
 
     logger.debug("Interpolation complete")
     return df

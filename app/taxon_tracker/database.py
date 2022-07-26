@@ -27,6 +27,7 @@ class TaxonCols(Enum):
     ID = 'id'
     LAST_UPDATED = 'last_updated'
     TIME_ADDED = 'time_added'
+    ADDITIONAL_QUERY_PARAMETERS = 'additional_query_parameters'
 
 
 class RecordCols(Enum):
@@ -42,7 +43,6 @@ class RecordCols(Enum):
     TIME_FETCHED = 'time_fetched'
     WAITING_SINCE = 'waiting_since'
     ASSEMBLY_RESULT = 'assembly_result'
-    LAT_LON_INTERPOLATED = 'lat_lon_interpolated'
 
 
 class CountryCols(Enum):
@@ -53,8 +53,7 @@ class CountryCols(Enum):
 
 COLUMNS = {
     Tables.TAXON: TaxonCols,
-    Tables.RECORD: RecordCols,
-    Tables.COUNTRY_COORDINATES: CountryCols
+    Tables.RECORD: RecordCols
 }
 
 

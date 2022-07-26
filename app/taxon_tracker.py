@@ -13,7 +13,7 @@ from requests import request
 
 from taxon_tracker.settings import Settings
 from taxon_tracker.logging import DatabaseHandler, stream_handler, log_format
-from taxon_tracker.database import Tables, COLUMNS, get_engine, AssemblyStatus
+from taxon_tracker.database import Tables, COLUMNS, get_engine, AssemblyStatus, CountryCols
 
 
 logger: [logging.Logger] = logging.getLogger(__file__)
@@ -46,11 +46,12 @@ def rate_limit(list_like: list, fun: Callable, rate: int) -> any:
 def get_taxons_to_check() -> pandas.DataFrame:
     taxon_id = COLUMNS[Tables.TAXON].ID.value
     last_updated = COLUMNS[Tables.TAXON].LAST_UPDATED.value
+    query_params = COLUMNS[Tables.TAXON].ADDITIONAL_QUERY_PARAMETERS.value
     # Fetch records for outdated taxons
     with get_engine().connect() as conn:
         df = pandas.read_sql(
             sql=sqlalchemy.text((
-                f"SELECT {taxon_id}, {last_updated} FROM {Tables.TAXON.value} WHERE "
+                f"SELECT {taxon_id}, {last_updated}, {query_params} FROM {Tables.TAXON.value} WHERE "
                 f"{last_updated} IS NULL OR "
                 # Updated over a week ago
                 f"DATE_PART('{Settings.TAXON_UPDATE_UNITS.value}', NOW() - {last_updated}) >= "
@@ -69,23 +70,12 @@ def update_taxons(taxons: pandas.DataFrame) -> None:
     t_id = COLUMNS[Tables.TAXON].ID.value
     last_updated = COLUMNS[Tables.TAXON].LAST_UPDATED.value
     for _, taxon in taxons.iterrows():
-        update_records(taxon)
-        # mark id as updated
-        with Session(get_engine()) as session:
-            session.execute(sqlalchemy.text((
-                f"UPDATE {Tables.TAXON.value} SET {last_updated}=NOW() WHERE {t_id}={taxon[t_id]}"
-            )))
-            session.commit()
-
-
-def update_records(taxon: pandas.Series) -> None:
-    logger.info(f"Updating records for taxon id {taxon[COLUMNS[Tables.TAXON].ID.value]}.")
-    # Query ENA for all record numbers
-    query_ENA(taxon)
+        query_ENA(taxon)
 
 
 def query_ENA(taxon: pandas.Series) -> None:
     taxon_id = taxon[COLUMNS[Tables.TAXON].ID.value]
+    logger.info(f"Updating records for taxon id {taxon_id}.")
     last_updated = taxon[COLUMNS[Tables.TAXON].LAST_UPDATED.value]
     logger.debug(f"Last updated: {last_updated}")
     if pandas.isnull(last_updated):
@@ -103,19 +93,15 @@ def query_ENA(taxon: pandas.Series) -> None:
             f"&result=read_run"
             f"&fields=sample_accession,experiment_accession,run_accession"
             f",lat,lon,country,collection_date,fastq_ftp,first_public"
-            # Core query
-            f"&query=first_public%3E%3D{updated}"
-            f"%20AND%20tax_eq({taxon_id})"
-            # Filters
-            f"%20AND%20library_strategy=WGS"
-            f"%20AND%20instrument_platform=ILLUMINA"
-            f"%20AND%20library_source=GENOMIC"
-            f"%20AND%20library_layout=PAIRED"
-            f"%20AND%20base_count%3E%3D{int(os.environ.get('MIN_BASE_PAIRS', '0'))}"
             # Pagination
             f"&limit={limit}"
             f"&offset={offset}"
+            # Core query
+            f"&query=first_public%3E%3D{updated}"
+            f"%20AND%20tax_eq({taxon_id})"
+            f"%20AND%20base_count%3E%3D{int(os.environ.get('MIN_BASE_PAIRS', '0'))}"
         )
+        url = url + f"%20AND%20{taxon[COLUMNS[Tables.TAXON].ADDITIONAL_QUERY_PARAMETERS.value]}"
         logger.debug(url)
         result = request('GET', url)
 
@@ -174,7 +160,18 @@ def query_ENA(taxon: pandas.Series) -> None:
     # Fetch records if they don't already exist.
     if len(new_records) > 0:
         try:
-            new_records = mapbox_country_lookup(new_records)
+            # Filter out records without location or date information
+            new_records[COLUMNS[Tables.RECORD].PASSED_FILTER.value] = True
+            new_records.loc[
+                (
+                        pandas.isnull(new_records[CountryCols.LONGITUDE.value]) |
+                        pandas.isnull(new_records[CountryCols.LATITUDE.value])
+                ) &
+                pandas.isnull(new_records[CountryCols.COUNTRY.value]) &
+                pandas.isnull(new_records[COLUMNS[Tables.RECORD].COLLECTION_DATE.value]),
+                COLUMNS[Tables.RECORD].PASSED_FILTER.value
+            ] = False
+            logger.info(f"{sum(new_records[COLUMNS[Tables.RECORD].PASSED_FILTER.value])} records passed filtering.")
             new_records[COLUMNS[Tables.RECORD].TIME_FETCHED.value] = datetime.datetime.now(tz=pytz.UTC)
 
             with get_engine().connect() as conn:
@@ -187,123 +184,19 @@ def query_ENA(taxon: pandas.Series) -> None:
                 conn.commit()
                 logger.info(f"Saved {len(new_records)} new records.")
 
+            # mark taxon as updated
+            with Session(get_engine()) as session:
+                session.execute(sqlalchemy.text((
+                    f"UPDATE {Tables.TAXON.value} "
+                    f"SET {COLUMNS[Tables.TAXON].LAST_UPDATED.value}=NOW() "
+                    f"WHERE {COLUMNS[Tables.TAXON].ID.value}={taxon_id}"
+                )))
+                session.commit()
+
         except BaseException as e:
             logger.error((
                 f"Error saving ENA record details. They will be retrieved later. Error: {e}"
             ))
-
-
-def mapbox_country_lookup(df: pandas.DataFrame) -> pandas.DataFrame:
-    """
-    Insert lat/lon estimations for records by consulting Mapbox if necessary.
-
-    Returns a dataframe with three additional columns:
-    passed_filter: whether the column has a lat+lon and/or collection_date after interpolation
-    filter_failed: Null if passed_filter, else 'country_or_date'
-    lat_lon_interpolated: True if lat and lon columns are changed by interpolation
-
-    Columns that may be changed:
-    lat, lon: may have values inserted by interpolation
-    assembly_result: changed to SKIPPED where passed_filter is False
-    """
-    # Select entries with no lat or lon but with country
-    logger.debug('Mapbox lookup')
-    logger.debug('SKIPPED')
-    df[COLUMNS[Tables.RECORD].PASSED_FILTER.value] = True
-    df[COLUMNS[Tables.RECORD].FILTER_FAILED.value] = pandas.NA
-    df[COLUMNS[Tables.RECORD].LAT_LON_INTERPOLATED.value] = False
-    return df
-
-    subset = df.loc[
-        (df[COLUMNS[Tables.RECORD].LATITUDE.value].isna() |
-         df[COLUMNS[Tables.RECORD].LONGITUDE.value].isna()) &
-        df[COLUMNS[Tables.RECORD].COUNTRY.value].notna(), ]
-    logger.debug(f"{len(subset)} rows require interpolation")
-
-    # Load country -> lat/lon mappings from database
-    logger.debug('Loading Mapbox cache from database')
-    with get_engine().connect() as conn:
-        mapbox_lookup_table = pandas.read_sql(
-            sql=sqlalchemy.text(f"SELECT * FROM {Tables.COUNTRY_COORDINATES.value}"),
-            con=conn
-        )
-    logger.debug(f'Loaded {len(mapbox_lookup_table)} rows from database')
-
-    # Column name aliases
-    cc_country = COLUMNS[Tables.COUNTRY_COORDINATES].COUNTRY.value
-    cc_lat = COLUMNS[Tables.COUNTRY_COORDINATES].LATITUDE.value
-    cc_lon = COLUMNS[Tables.COUNTRY_COORDINATES].LONGITUDE.value
-    rd_country = COLUMNS[Tables.RECORD].COUNTRY.value
-    rd_lat = COLUMNS[Tables.RECORD].LATITUDE.value
-    rd_lon = COLUMNS[Tables.RECORD].LONGITUDE.value
-    rd_interp = COLUMNS[Tables.RECORD].LAT_LON_INTERPOLATED.value
-
-    for c in subset.country.unique():
-        logger.debug(f'Mapbox processing for {c}')
-        lat = None
-        lon = None
-        # Fetch new lat/lon mappings where necessary
-        if c not in mapbox_lookup_table[cc_country]:
-            try:
-                logger.debug(f"Querying mapbox for {c}")
-                response = request(
-                    'GET',
-                    f"{MAPBOX_URL}/{c}.json?access_token={MAPBOX_KEY}"
-                )
-                j = response.json()
-                results = j['features']
-                top_result = results[0]
-                lat, lon = top_result['center']
-                mapbox_lookup_table = mapbox_lookup_table.concat(
-                    [
-                        mapbox_lookup_table,
-                        pandas.DataFrame.from_dict({
-                            cc_country: c,
-                            cc_lat: lat,
-                            cc_lon: lon
-                        })
-                    ],
-                    ignore_index=True
-                )
-            except BaseException as e:
-                # Soft fail on error
-                logger.error(e)
-            else:
-                # Load from database cache
-                logger.debug(f"Found {c} in database")
-                row = mapbox_lookup_table[mapbox_lookup_table[cc_country] == c]
-                lat = row[cc_lat][0]
-                lon = row[cc_lon][0]
-
-            # Update records
-            if lat is not None and lon is not None:
-                logger.debug(f"{c} resolves to {lat}, {lon}")
-                subset.loc[subset[rd_country] == c, [rd_lat, rd_lon, rd_interp]] = (lat, lon, True)
-
-    # Save updated lookup table
-    logger.debug("Saving updated records.")
-    with get_engine().connect() as conn:
-        mapbox_lookup_table.to_sql(
-            name=Tables.COUNTRY_COORDINATES.value,
-            con=conn,
-            if_exists='append',
-            index=False
-        )
-        conn.commit()
-
-    # Check records have a collection_date OR lat+lon
-    exclude = df.loc[
-        (
-                pandas.isnull(df[COLUMNS[Tables.RECORD].LATITUDE.value]) |
-                pandas.isnull(df[COLUMNS[Tables.RECORD].LONGITUDE.value])
-        ) &
-        pandas.isnull(df[COLUMNS[Tables.RECORD].COLLECTION_DATE.value])
-        ]
-    exclude[COLUMNS[Tables.RECORD].PASSED_FILTER.value] = False
-    exclude[COLUMNS[Tables.RECORD].ASSEMBLY_RESULT.value] = AssemblyStatus.SKIPPED.value
-
-    logger.debug("Interpolation complete")
-    return df
 
 
 def release_records() -> None:

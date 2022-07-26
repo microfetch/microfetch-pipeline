@@ -816,15 +816,9 @@ components:
           type: string
           nullable: true
           maxLength: 1024
-        lat_lon_interpolated:
-          type: boolean
         passed_filter:
           type: boolean
           nullable: true
-        filter_failed:
-          type: string
-          nullable: true
-          maxLength: 1024
         waiting_since:
           type: string
           format: date-time
@@ -898,6 +892,11 @@ components:
         time_added:
           type: string
           format: date-time
+          readOnly: true
+        additional_query_parameters:
+          type: string
+        short_record_link:
+          type: string
           readOnly: true
       required:
       - id

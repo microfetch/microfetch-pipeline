@@ -3,6 +3,7 @@ from rest_framework.reverse import reverse
 from .models import Taxons, Records, QualifyrReport
 
 import logging
+import os
 
 logger = logging.getLogger(__file__)
 
@@ -23,10 +24,34 @@ class TaxonSerializer(serializers.HyperlinkedModelSerializer):
     )
     last_updated = serializers.DateTimeField(read_only=True)
     time_added = serializers.DateTimeField(read_only=True)
+    short_record_link = serializers.SerializerMethodField(method_name='get_short_record_link')
+
+    def get_short_record_link(self, instance) -> str:
+        query = (
+            f"https://www.ebi.ac.uk/ena/portal/api/search?"
+            f"format=json"
+            f"&result=read_run"
+            f"&fields=sample_accession,experiment_accession,run_accession"
+            f",lat,lon,country,collection_date,fastq_ftp,first_public"
+            # Core query
+            f"&query=tax_eq({instance.id})"
+            # Filters
+            f"%20AND%20base_count%3C{int(os.environ.get('MIN_BASE_PAIRS', '0'))}"
+        )
+        return query + f"%20AND%20{instance.additional_query_parameters}"
 
     class Meta:
         model = Taxons
-        fields = ['id', 'url', 'records', 'post_assembly_filters', 'last_updated', 'time_added']
+        fields = [
+            'id',
+            'url',
+            'records',
+            'post_assembly_filters',
+            'last_updated',
+            'time_added',
+            'additional_query_parameters',
+            'short_record_link'
+        ]
 
 
 class QualifyrReportSerializer(serializers.ModelSerializer):

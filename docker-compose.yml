@@ -19,6 +19,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
+      - .env.taxon_tracker  # used for short record query
       - .env.postgres
       - .env.django
     depends_on:

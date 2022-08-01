@@ -243,7 +243,7 @@ class RecordViewSet(rest_framework.viewsets.ReadOnlyModelViewSet, HyperlinkedVie
         about the screening. If the screening fails, it can be useful to specify a reason
         in this field.
         """
-        return self._filter_queryset(assembly_status=['success'], passed_screening=['false'])
+        return self._filter_queryset(assembly_status=['success'], passed_screening=['null'])
 
     @rest_framework.decorators.action(methods=['get'], detail=False)
     @paginate
